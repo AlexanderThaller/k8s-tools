@@ -103,8 +103,11 @@ struct TopResult {
     memory: u64,
 }
 
-#[derive(Debug, Ord, PartialOrd, PartialEq, Eq)]
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy)]
 struct Memory(u64);
+
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy)]
+struct Cpu(u64);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -217,9 +220,9 @@ async fn resource_requests(
 ) -> Result<()> {
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
-        requests_cpu: Option<u64>,
-        cpu_usage: Option<u64>,
-        limits_cpu: Option<u64>,
+        requests_cpu: Option<Cpu>,
+        cpu_usage: Option<Cpu>,
+        limits_cpu: Option<Cpu>,
         requests_memory: Option<Memory>,
         limits_memory: Option<Memory>,
         memory_usage: Option<Memory>,
@@ -239,7 +242,6 @@ async fn resource_requests(
                 .containers
                 .into_iter()
                 .filter(|container| container.resources.is_some())
-                .filter(|container| container.resources.as_ref().unwrap().requests.is_some())
                 .map(move |container| Output {
                     pod_name: pod
                         .metadata
@@ -256,9 +258,9 @@ async fn resource_requests(
                         .expect("missing resources")
                         .requests
                         .as_ref()
-                        .expect("missing requests")
-                        .get("cpu")
-                        .map(quantity_to_number),
+                        .and_then(|requests| requests.get("cpu"))
+                        .map(quantity_to_number)
+                        .map(Cpu),
 
                     requests_memory: container
                         .resources
@@ -266,8 +268,7 @@ async fn resource_requests(
                         .expect("missing resources")
                         .requests
                         .as_ref()
-                        .expect("missing requests")
-                        .get("memory")
+                        .and_then(|requests| requests.get("memory"))
                         .map(quantity_to_number)
                         .map(Memory),
 
@@ -277,14 +278,17 @@ async fn resource_requests(
                         .expect("missing resources")
                         .limits
                         .as_ref()
-                        .and_then(|limits| limits.get("cpu").map(quantity_to_number)),
+                        .and_then(|limits| limits.get("cpu"))
+                        .map(quantity_to_number)
+                        .map(Cpu),
 
                     limits_memory: container
                         .resources
                         .expect("missing resources")
                         .limits
                         .as_ref()
-                        .and_then(|limits| limits.get("memory").map(quantity_to_number))
+                        .and_then(|limits| limits.get("memory"))
+                        .map(quantity_to_number)
                         .map(Memory),
 
                     cpu_usage: None,
@@ -308,7 +312,7 @@ async fn resource_requests(
                 .find(|top| top.container_name == pod.container_name);
 
             Output {
-                cpu_usage: container_top.map(|top| top.cpu),
+                cpu_usage: container_top.map(|top| Cpu(top.cpu)),
                 memory_usage: container_top.map(|top| Memory(top.memory)),
                 ..pod
             }
@@ -317,7 +321,7 @@ async fn resource_requests(
             if let Some(threshold) = threshold {
                 if let Some(cpu_usage) = pod.cpu_usage {
                     if let Some(requests_cpu) = pod.requests_cpu {
-                        let diff = requests_cpu.saturating_sub(cpu_usage);
+                        let diff = requests_cpu.0.saturating_sub(cpu_usage.0);
 
                         return diff > threshold;
                     }
@@ -413,6 +417,20 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
         .collect();
 
     Ok(out)
+}
+
+impl Serialize for Cpu {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut f = Formatter::new()
+            .precision(Precision::Significance(2))
+            .suffix("m")
+            .unwrap();
+
+        serializer.serialize_str(f.fmt2(self.0))
+    }
 }
 
 impl Serialize for Memory {
