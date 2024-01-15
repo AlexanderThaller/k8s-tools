@@ -209,12 +209,12 @@ async fn resource_requests(
 ) -> Result<()> {
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
-        requests_cpu: u64,
-        cpu_usage: u64,
-        limits_cpu: u64,
-        requests_memory: u64,
-        limits_memory: u64,
-        memory_usage: u64,
+        requests_cpu: Option<u64>,
+        cpu_usage: Option<u64>,
+        limits_cpu: Option<u64>,
+        requests_memory: Option<u64>,
+        limits_memory: Option<u64>,
+        memory_usage: Option<u64>,
         pod_name: String,
         container_name: String,
     }
@@ -242,57 +242,43 @@ async fn resource_requests(
 
                     container_name: container.name,
 
-                    requests_cpu: quantity_to_number(
-                        container
-                            .resources
-                            .as_ref()
-                            .expect("missing resources")
-                            .requests
-                            .as_ref()
-                            .expect("missing requests")
-                            .get("cpu")
-                            .expect("missing cpu")
-                            .clone(),
-                    ),
+                    requests_cpu: container
+                        .resources
+                        .as_ref()
+                        .expect("missing resources")
+                        .requests
+                        .as_ref()
+                        .expect("missing requests")
+                        .get("cpu")
+                        .map(quantity_to_number),
 
-                    requests_memory: quantity_to_number(
-                        container
-                            .resources
-                            .as_ref()
-                            .expect("missing resources")
-                            .requests
-                            .as_ref()
-                            .expect("missing requests")
-                            .get("memory")
-                            .expect("missing memory")
-                            .clone(),
-                    ),
+                    requests_memory: container
+                        .resources
+                        .as_ref()
+                        .expect("missing resources")
+                        .requests
+                        .as_ref()
+                        .expect("missing requests")
+                        .get("memory")
+                        .map(quantity_to_number),
 
-                    limits_cpu: quantity_to_number(
-                        container
-                            .resources
-                            .as_ref()
-                            .expect("missing resources")
-                            .limits
-                            .as_ref()
-                            .expect("missing limit")
-                            .get("cpu")
-                            .expect("missing cpu")
-                            .clone(),
-                    ),
+                    limits_cpu: container
+                        .resources
+                        .as_ref()
+                        .expect("missing resources")
+                        .limits
+                        .as_ref()
+                        .and_then(|limits| limits.get("cpu").map(quantity_to_number)),
 
-                    limits_memory: quantity_to_number(
-                        container
-                            .resources
-                            .expect("missing resources")
-                            .limits
-                            .expect("missing limit")
-                            .remove("memory")
-                            .expect("missing memory"),
-                    ),
+                    limits_memory: container
+                        .resources
+                        .expect("missing resources")
+                        .limits
+                        .as_ref()
+                        .and_then(|limits| limits.get("memory").map(quantity_to_number)),
 
-                    cpu_usage: 0,
-                    memory_usage: 0,
+                    cpu_usage: None,
+                    memory_usage: None,
                 })
         })
         .collect::<BTreeSet<Output>>();
@@ -309,23 +295,26 @@ async fn resource_requests(
             let top = tops.get(&pod.pod_name).unwrap();
             let container_top = top
                 .iter()
-                .find(|top| top.container_name == pod.container_name)
-                .unwrap();
+                .find(|top| top.container_name == pod.container_name);
 
             Output {
-                cpu_usage: container_top.cpu,
-                memory_usage: container_top.memory,
+                cpu_usage: container_top.map(|top| top.cpu),
+                memory_usage: container_top.map(|top| top.memory),
                 ..pod
             }
         })
         .filter(|pod| {
             if let Some(threshold) = threshold {
-                let diff = pod.requests_cpu.saturating_sub(pod.cpu_usage);
+                if let Some(cpu_usage) = pod.cpu_usage {
+                    if let Some(requests_cpu) = pod.requests_cpu {
+                        let diff = requests_cpu.saturating_sub(cpu_usage);
 
-                diff > threshold
-            } else {
-                true
-            }
+                        return diff > threshold;
+                    }
+                }
+            };
+
+            true
         })
         .collect::<BTreeSet<_>>();
 
@@ -336,7 +325,7 @@ async fn resource_requests(
     Ok(())
 }
 
-fn quantity_to_number(input: Quantity) -> u64 {
+fn quantity_to_number(input: &Quantity) -> u64 {
     let mut number = String::new();
     let mut suffix = String::new();
 
@@ -400,8 +389,9 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
 
             let pod_name = split.next().expect("missing pod_name").to_string();
             let container_name = split.next().expect("missing container_name").to_string();
-            let cpu = quantity_to_number(Quantity(split.next().expect("missing cpu").into()));
-            let memory = quantity_to_number(Quantity(split.next().expect("missing memory").into()));
+            let cpu = quantity_to_number(&Quantity(split.next().expect("missing cpu").into()));
+            let memory =
+                quantity_to_number(&Quantity(split.next().expect("missing memory").into()));
 
             TopResult {
                 pod_name,
@@ -434,7 +424,7 @@ mod tests {
             dbg!(&input);
             dbg!(&expected);
 
-            let output = super::quantity_to_number(input);
+            let output = super::quantity_to_number(&input);
             assert_eq!(expected, output);
         }
     }
