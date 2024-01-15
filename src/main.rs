@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use clap::{Parser, Subcommand};
@@ -68,6 +69,14 @@ enum ApiError {
 
     #[error("failed to list pods: {0}")]
     ListPods(kube::Error),
+}
+
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq)]
+struct TopResult {
+    pod_name: String,
+    container_name: String,
+    cpu: u64,
+    memory: u64,
 }
 
 #[tokio::main]
@@ -177,6 +186,7 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
         requests_cpu: u64,
+        cpu_usage: u64,
         limits_cpu: u64,
         pod_name: String,
         container_name: String,
@@ -218,6 +228,8 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
                             .clone(),
                     ),
 
+                    cpu_usage: 0,
+
                     limits_cpu: quantity_to_number(
                         container
                             .resources
@@ -230,6 +242,28 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
                 })
         })
         .collect::<BTreeSet<Output>>();
+
+    let mut tops = BTreeMap::new();
+    for pod in &output {
+        let top = get_pod_resource_usage(&pod.pod_name).await.unwrap();
+        tops.insert(pod.pod_name.clone(), top);
+    }
+
+    let output = output
+        .into_iter()
+        .map(|pod| {
+            let top = tops.get(&pod.pod_name).unwrap();
+            let container_top = top
+                .into_iter()
+                .find(|top| top.container_name == pod.container_name)
+                .unwrap();
+
+            Output {
+                cpu_usage: container_top.cpu,
+                ..pod
+            }
+        })
+        .collect::<BTreeSet<_>>();
 
     let out = serde_json::to_string_pretty(&output)?;
 
@@ -262,6 +296,50 @@ fn quantity_to_number(input: Quantity) -> u64 {
     } else {
         number * 1000
     }
+}
+
+async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
+    // ⬢ [podman] ❯ kubectl top pod logstash-ls-1 --containers
+    // POD             NAME          CPU(cores)   MEMORY(bytes)
+    // logstash-ls-1   POD           0m           0Mi
+    // logstash-ls-1   istio-proxy   7m           94Mi
+    // logstash-ls-1   logstash      158m         1746Mi
+    //
+
+    let output = tokio::process::Command::new("kubectl")
+        .args(&["top", "pods", "--containers", pod])
+        .output()
+        .await
+        .unwrap()
+        .stdout;
+
+    let output = String::from_utf8_lossy(&output);
+
+    let out = output
+        .lines()
+        .into_iter()
+        .skip(1)
+        .map(|line| {
+            let split = line.split_whitespace().collect::<Vec<_>>();
+            let mut split = split.into_iter();
+
+            let pod_name = split.next().expect("missing pod_name").to_string();
+            let container_name = split.next().expect("missing container_name").to_string();
+            let cpu = quantity_to_number(Quantity(split.next().expect("missing cpu").into()));
+            // TODO
+            //let memory = quantity_to_number(Quantity(split.next().expect("missing cpu").into()));
+            let memory = 0;
+
+            TopResult {
+                pod_name,
+                container_name,
+                cpu,
+                memory,
+            }
+        })
+        .collect();
+
+    Ok(out)
 }
 
 #[cfg(test)]
