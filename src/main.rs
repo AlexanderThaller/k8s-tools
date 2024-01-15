@@ -1,19 +1,9 @@
 use std::collections::BTreeSet;
 
-use clap::{
-    Parser,
-    Subcommand,
-};
+use clap::{Parser, Subcommand};
 use eyre::Result;
-use k8s_openapi::{
-    api::core::v1::Pod,
-    apimachinery::pkg::api::resource::Quantity,
-};
-use kube::{
-    api::ListParams,
-    Api,
-    Client,
-};
+use k8s_openapi::{api::core::v1::Pod, apimachinery::pkg::api::resource::Quantity};
+use kube::{api::ListParams, Api, Client};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -187,6 +177,7 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
         requests_cpu: u64,
+        limits_cpu: u64,
         pod_name: String,
         container_name: String,
     }
@@ -195,6 +186,8 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
 
     let output = pods
         .into_iter()
+        .filter(|pod| pod.status.is_some())
+        .filter(|pod| pod.status.as_ref().unwrap().phase == Some("Running".to_string()))
         .flat_map(|pod| {
             pod.spec
                 .expect("missing spec")
@@ -215,9 +208,22 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
                     requests_cpu: quantity_to_number(
                         container
                             .resources
+                            .as_ref()
                             .expect("missing resources")
                             .requests
+                            .as_ref()
                             .expect("missing requests")
+                            .get("cpu")
+                            .expect("missing cpu")
+                            .clone(),
+                    ),
+
+                    limits_cpu: quantity_to_number(
+                        container
+                            .resources
+                            .expect("missing resources")
+                            .limits
+                            .expect("missing limit")
                             .remove("cpu")
                             .expect("missing cpu"),
                     ),
