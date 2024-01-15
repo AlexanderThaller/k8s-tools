@@ -123,6 +123,11 @@ impl Alphabet {
 
         Ok(Self::from_str_unchecked(alphabet))
     }
+
+    /// Create a `&str` from the symbols in the `Alphabet`
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.symbols).unwrap()
+    }
 }
 
 impl convert::TryFrom<&str> for Alphabet {
@@ -269,5 +274,12 @@ mod tests {
             Alphabet::try_from("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn str_same_as_input() {
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let a = Alphabet::try_from(alphabet).unwrap();
+        assert_eq!(alphabet, a.as_str())
     }
 }
