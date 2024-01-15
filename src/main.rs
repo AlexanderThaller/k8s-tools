@@ -1,10 +1,22 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{
+    BTreeMap,
+    BTreeSet,
+};
 
-use clap::{Parser, Subcommand};
+use clap::{
+    Parser,
+    Subcommand,
+};
 use eyre::Result;
-use k8s_openapi::{api::core::v1::Pod, apimachinery::pkg::api::resource::Quantity};
-use kube::{api::ListParams, Api, Client};
+use k8s_openapi::{
+    api::core::v1::Pod,
+    apimachinery::pkg::api::resource::Quantity,
+};
+use kube::{
+    api::ListParams,
+    Api,
+    Client,
+};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -60,9 +72,10 @@ enum Command {
         )]
         all_namespaces: bool,
 
-        /// Threshold for displaying containers. Will calculate the difference between the request
-        /// and the current cpu usage if thats bigger than the threshold the container will be
-        /// displayed. When not specified will print all pods.
+        /// Threshold for displaying containers. Will calculate the difference
+        /// between the request and the current cpu usage if thats
+        /// bigger than the threshold the container will be displayed.
+        /// When not specified will print all pods.
         #[arg(name = "threshold", long, required = false)]
         threshold: Option<u64>,
     },
@@ -255,7 +268,6 @@ async fn resource_requests(
                             .clone(),
                     ),
 
-
                     limits_cpu: quantity_to_number(
                         container
                             .resources
@@ -265,7 +277,8 @@ async fn resource_requests(
                             .as_ref()
                             .expect("missing limit")
                             .get("cpu")
-                            .expect("missing cpu").clone(),
+                            .expect("missing cpu")
+                            .clone(),
                     ),
 
                     limits_memory: quantity_to_number(
@@ -295,7 +308,7 @@ async fn resource_requests(
         .map(|pod| {
             let top = tops.get(&pod.pod_name).unwrap();
             let container_top = top
-                .into_iter()
+                .iter()
                 .find(|top| top.container_name == pod.container_name)
                 .unwrap();
 
@@ -370,7 +383,7 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
     //
 
     let output = tokio::process::Command::new("kubectl")
-        .args(&["top", "pods", "--containers", pod])
+        .args(["top", "pods", "--containers", pod])
         .output()
         .await
         .unwrap()
@@ -380,7 +393,6 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
 
     let out = output
         .lines()
-        .into_iter()
         .skip(1)
         .map(|line| {
             let split = line.split_whitespace().collect::<Vec<_>>();
@@ -410,7 +422,10 @@ mod tests {
     #[test]
     fn quantity_to_number() {
         let testcases = vec![
-            ("1500m", 1500), ("1k", 1_000_000), ("1", 1000), ("1Ki", 1024)
+            ("1500m", 1500),
+            ("1k", 1_000_000),
+            ("1", 1000),
+            ("1Ki", 1024),
         ];
 
         for (input, expected) in testcases {
