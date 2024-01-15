@@ -39,7 +39,7 @@ enum Command {
         all_namespaces: bool,
     },
 
-    // Get the resource requests for pods in the current namespace.
+    /// Get the resource requests for pods in the current namespace.
     ResourceRequests {
         /// Check the given namespaces if not defined the current one will be
         /// used.
@@ -199,6 +199,9 @@ async fn resource_requests(
         requests_cpu: u64,
         cpu_usage: u64,
         limits_cpu: u64,
+        requests_memory: u64,
+        limits_memory: u64,
+        memory_usage: u64,
         pod_name: String,
         container_name: String,
     }
@@ -239,17 +242,44 @@ async fn resource_requests(
                             .clone(),
                     ),
 
-                    cpu_usage: 0,
+                    requests_memory: quantity_to_number(
+                        container
+                            .resources
+                            .as_ref()
+                            .expect("missing resources")
+                            .requests
+                            .as_ref()
+                            .expect("missing requests")
+                            .get("memory")
+                            .expect("missing memory")
+                            .clone(),
+                    ),
+
 
                     limits_cpu: quantity_to_number(
+                        container
+                            .resources
+                            .as_ref()
+                            .expect("missing resources")
+                            .limits
+                            .as_ref()
+                            .expect("missing limit")
+                            .get("cpu")
+                            .expect("missing cpu").clone(),
+                    ),
+
+                    limits_memory: quantity_to_number(
                         container
                             .resources
                             .expect("missing resources")
                             .limits
                             .expect("missing limit")
-                            .remove("cpu")
-                            .expect("missing cpu"),
+                            .remove("memory")
+                            .expect("missing memory"),
                     ),
+
+                    cpu_usage: 0,
+                    memory_usage: 0,
                 })
         })
         .collect::<BTreeSet<Output>>();
@@ -271,6 +301,7 @@ async fn resource_requests(
 
             Output {
                 cpu_usage: container_top.cpu,
+                memory_usage: container_top.memory,
                 ..pod
             }
         })
@@ -294,27 +325,39 @@ async fn resource_requests(
 
 fn quantity_to_number(input: Quantity) -> u64 {
     let mut number = String::new();
-    let mut suffix: Option<char> = None;
+    let mut suffix = String::new();
+
+    // accumulate number until char is not a number then use the rest as suffix
+    // to make the memory stuff (MiB, GiB) work
+
+    let number_acc = true;
 
     for ch in input.0.chars() {
-        if ch.is_numeric() {
-            number.push(ch)
+        if number_acc {
+            if ch.is_numeric() {
+                number.push(ch);
+            } else {
+                suffix.push(ch);
+            }
         } else {
-            suffix = Some(ch)
+            suffix.push(ch);
         }
     }
 
     let number = number.parse().expect("failed to parse number");
 
-    if let Some(s) = suffix {
-        match s {
-            'm' => number,
-            'k' => number * 1000 * 1000,
-
-            _ => panic!("invalid suffix {s}"),
-        }
-    } else {
+    if suffix.is_empty() {
         number * 1000
+    } else {
+        match suffix.as_str() {
+            "m" => number,
+            "k" => number * 1000 * 1000,
+            "Ki" => number * 1024,
+            "Mi" => number * 1024 * 1024,
+            "Gi" => number * 1024 * 1024 * 1024,
+
+            _ => panic!("invalid suffix {suffix}"),
+        }
     }
 }
 
@@ -346,9 +389,7 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
             let pod_name = split.next().expect("missing pod_name").to_string();
             let container_name = split.next().expect("missing container_name").to_string();
             let cpu = quantity_to_number(Quantity(split.next().expect("missing cpu").into()));
-            // TODO
-            //let memory = quantity_to_number(Quantity(split.next().expect("missing cpu").into()));
-            let memory = 0;
+            let memory = quantity_to_number(Quantity(split.next().expect("missing memory").into()));
 
             TopResult {
                 pod_name,
@@ -368,12 +409,18 @@ mod tests {
 
     #[test]
     fn quantity_to_number() {
-        let input: Quantity = Quantity("1500m".to_string());
-        dbg!(&input);
+        let testcases = vec![
+            ("1500m", 1500), ("1k", 1_000_000), ("1", 1000), ("1Ki", 1024)
+        ];
 
-        let expected = 1500;
-        let output = super::quantity_to_number(input);
+        for (input, expected) in testcases {
+            let input: Quantity = Quantity(input.to_string());
 
-        assert_eq!(expected, output);
+            dbg!(&input);
+            dbg!(&expected);
+
+            let output = super::quantity_to_number(input);
+            assert_eq!(expected, output);
+        }
     }
 }
