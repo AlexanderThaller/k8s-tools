@@ -17,6 +17,11 @@ use kube::{
     Api,
     Client,
 };
+use numfmt::{
+    Formatter,
+    Precision,
+    Scales,
+};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -97,6 +102,9 @@ struct TopResult {
     cpu: u64,
     memory: u64,
 }
+
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq)]
+struct Memory(u64);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -212,9 +220,9 @@ async fn resource_requests(
         requests_cpu: Option<u64>,
         cpu_usage: Option<u64>,
         limits_cpu: Option<u64>,
-        requests_memory: Option<u64>,
-        limits_memory: Option<u64>,
-        memory_usage: Option<u64>,
+        requests_memory: Option<Memory>,
+        limits_memory: Option<Memory>,
+        memory_usage: Option<Memory>,
         pod_name: String,
         container_name: String,
     }
@@ -260,7 +268,8 @@ async fn resource_requests(
                         .as_ref()
                         .expect("missing requests")
                         .get("memory")
-                        .map(quantity_to_number),
+                        .map(quantity_to_number)
+                        .map(Memory),
 
                     limits_cpu: container
                         .resources
@@ -275,7 +284,8 @@ async fn resource_requests(
                         .expect("missing resources")
                         .limits
                         .as_ref()
-                        .and_then(|limits| limits.get("memory").map(quantity_to_number)),
+                        .and_then(|limits| limits.get("memory").map(quantity_to_number))
+                        .map(Memory),
 
                     cpu_usage: None,
                     memory_usage: None,
@@ -299,7 +309,7 @@ async fn resource_requests(
 
             Output {
                 cpu_usage: container_top.map(|top| top.cpu),
-                memory_usage: container_top.map(|top| top.memory),
+                memory_usage: container_top.map(|top| Memory(top.memory)),
                 ..pod
             }
         })
@@ -403,6 +413,21 @@ async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
         .collect();
 
     Ok(out)
+}
+
+impl Serialize for Memory {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut f = Formatter::new()
+            .scales(Scales::binary())
+            .precision(Precision::Significance(2))
+            .suffix("B")
+            .unwrap();
+
+        serializer.serialize_str(f.fmt2(self.0))
+    }
 }
 
 #[cfg(test)]
