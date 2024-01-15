@@ -14,6 +14,7 @@ use k8s_openapi::{
 };
 use kube::{
     api::ListParams,
+    core::ObjectMeta,
     Api,
     Client,
 };
@@ -228,6 +229,7 @@ async fn resource_requests(
         memory_usage: Option<Memory>,
         pod_name: String,
         container_name: String,
+        namespace: String,
     }
 
     let pods = get_pods(namespaces, all_namespaces).await?;
@@ -251,6 +253,12 @@ async fn resource_requests(
                         .clone(),
 
                     container_name: container.name,
+                    namespace: pod
+                        .metadata
+                        .namespace
+                        .as_ref()
+                        .expect("missing namespace")
+                        .clone(),
 
                     requests_cpu: container
                         .resources
@@ -299,21 +307,26 @@ async fn resource_requests(
 
     let mut tops = BTreeMap::new();
     for pod in &output {
-        let top = get_pod_resource_usage(&pod.pod_name).await.unwrap();
+        let top = get_pod_resource_usage(&pod.namespace, &pod.pod_name)
+            .await
+            .unwrap();
         tops.insert(pod.pod_name.clone(), top);
     }
 
     let output = output
         .into_iter()
         .map(|pod| {
-            let top = tops.get(&pod.pod_name).unwrap();
-            let container_top = top
+            let usage = tops.get(&pod.pod_name).unwrap();
+            let container_usage = usage
+                .containers
                 .iter()
-                .find(|top| top.container_name == pod.container_name);
+                .find(|container| container.name == pod.container_name);
 
             Output {
-                cpu_usage: container_top.map(|top| Cpu(top.cpu)),
-                memory_usage: container_top.map(|top| Memory(top.memory)),
+                cpu_usage: container_usage
+                    .map(|container| Cpu(quantity_to_number(&container.usage.cpu))),
+                memory_usage: container_usage
+                    .map(|container| Memory(quantity_to_number(&container.usage.memory))),
                 ..pod
             }
         })
@@ -366,57 +379,35 @@ fn quantity_to_number(input: &Quantity) -> u64 {
         number * 1000
     } else {
         match suffix.as_str() {
+            "n" => number / 1000 / 1000,
             "m" => number,
             "k" => number * 1000 * 1000,
             "Ki" => number * 1024,
             "Mi" => number * 1024 * 1024,
             "Gi" => number * 1024 * 1024 * 1024,
 
-            _ => panic!("invalid suffix {suffix}"),
+            _ => {
+                dbg!(input);
+                panic!("invalid suffix {suffix}");
+            }
         }
     }
 }
-
-async fn get_pod_resource_usage(pod: &str) -> Result<Vec<TopResult>> {
-    // ⬢ [podman] ❯ kubectl top pod logstash-ls-1 --containers
-    // POD             NAME          CPU(cores)   MEMORY(bytes)
-    // logstash-ls-1   POD           0m           0Mi
-    // logstash-ls-1   istio-proxy   7m           94Mi
-    // logstash-ls-1   logstash      158m         1746Mi
-    //
-
-    let output = tokio::process::Command::new("kubectl")
-        .args(["top", "pods", "--containers", pod])
-        .output()
+async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result<PodMetrics> {
+    let client = Client::try_default()
         .await
-        .unwrap()
-        .stdout;
+        .map_err(ApiError::CreateClient)?;
 
-    let output = String::from_utf8_lossy(&output);
+    let api: Api<PodMetrics> = Api::namespaced(client.clone(), namespace);
+    let lp = ListParams::default().fields(&format!("metadata.name={}", pod));
 
-    let out = output
-        .lines()
-        .skip(1)
-        .map(|line| {
-            let split = line.split_whitespace().collect::<Vec<_>>();
-            let mut split = split.into_iter();
+    let mut out = api.list(&lp).await.unwrap().items;
 
-            let pod_name = split.next().expect("missing pod_name").to_string();
-            let container_name = split.next().expect("missing container_name").to_string();
-            let cpu = quantity_to_number(&Quantity(split.next().expect("missing cpu").into()));
-            let memory =
-                quantity_to_number(&Quantity(split.next().expect("missing memory").into()));
+    if out.len() != 1 {
+        panic!("expected 1 pod got {}", out.len());
+    }
 
-            TopResult {
-                pod_name,
-                container_name,
-                cpu,
-                memory,
-            }
-        })
-        .collect();
-
-    Ok(out)
+    Ok(out.remove(0))
 }
 
 impl Serialize for Cpu {
@@ -445,6 +436,48 @@ impl Serialize for Memory {
             .unwrap();
 
         serializer.serialize_str(f.fmt2(self.0))
+    }
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct PodMetricsContainer {
+    pub name: String,
+    pub usage: PodMetricsContainerUsage,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct PodMetricsContainerUsage {
+    pub cpu: Quantity,
+    pub memory: Quantity,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct PodMetrics {
+    pub metadata: ObjectMeta,
+    pub timestamp: String,
+    pub window: String,
+    pub containers: Vec<PodMetricsContainer>,
+}
+
+impl k8s_openapi::Resource for PodMetrics {
+    const GROUP: &'static str = "metrics.k8s.io";
+    const KIND: &'static str = "PodMetrics";
+    const VERSION: &'static str = "v1beta1";
+    const API_VERSION: &'static str = "metrics.k8s.io/v1beta1";
+    const URL_PATH_SEGMENT: &'static str = "pods";
+
+    type Scope = k8s_openapi::NamespaceResourceScope;
+}
+
+impl k8s_openapi::Metadata for PodMetrics {
+    type Ty = ObjectMeta;
+
+    fn metadata(&self) -> &Self::Ty {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut Self::Ty {
+        &mut self.metadata
     }
 }
 
