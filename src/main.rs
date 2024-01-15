@@ -59,6 +59,12 @@ enum Command {
             conflicts_with = "namespaces"
         )]
         all_namespaces: bool,
+
+        /// Threshold for displaying containers. Will calculate the difference between the request
+        /// and the current cpu usage if thats bigger than the threshold the container will be
+        /// displayed. When not specified will print all pods.
+        #[arg(name = "threshold", long, required = false)]
+        threshold: Option<u64>,
     },
 }
 
@@ -91,7 +97,8 @@ async fn main() -> Result<()> {
         Command::ResourceRequests {
             namespaces,
             all_namespaces,
-        } => resource_requests(namespaces, all_namespaces).await,
+            threshold,
+        } => resource_requests(namespaces, all_namespaces, threshold).await,
     }
 }
 
@@ -182,7 +189,11 @@ async fn missing_health_probes(namespaces: Vec<String>, all_namespaces: bool) ->
     Ok(())
 }
 
-async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Result<()> {
+async fn resource_requests(
+    namespaces: Vec<String>,
+    all_namespaces: bool,
+    threshold: Option<u64>,
+) -> Result<()> {
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
         requests_cpu: u64,
@@ -261,6 +272,15 @@ async fn resource_requests(namespaces: Vec<String>, all_namespaces: bool) -> Res
             Output {
                 cpu_usage: container_top.cpu,
                 ..pod
+            }
+        })
+        .filter(|pod| {
+            if let Some(threshold) = threshold {
+                let diff = pod.requests_cpu.saturating_sub(pod.cpu_usage);
+
+                diff > threshold
+            } else {
+                true
             }
         })
         .collect::<BTreeSet<_>>();
