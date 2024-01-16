@@ -3,6 +3,7 @@ use std::collections::{
     BTreeSet,
 };
 
+use bytesize::ByteSize;
 use clap::{
     Parser,
     Subcommand,
@@ -17,11 +18,6 @@ use kube::{
     core::ObjectMeta,
     Api,
     Client,
-};
-use numfmt::{
-    Formatter,
-    Precision,
-    Scales,
 };
 use serde::Serialize;
 
@@ -331,6 +327,16 @@ async fn resource_requests(
             }
         })
         .filter(|pod| {
+            // Check if cpu_usage is higher than requests_cpu
+            if let Some(cpu_usage) = pod.cpu_usage {
+                if let Some(requests_cpu) = pod.requests_cpu {
+                    if cpu_usage.0 > requests_cpu.0 {
+                        return true;
+                    }
+                }
+            }
+
+            // Check if cpu_usage is below the requests_cpu threshold
             if let Some(threshold) = threshold {
                 if let Some(cpu_usage) = pod.cpu_usage {
                     if let Some(requests_cpu) = pod.requests_cpu {
@@ -393,6 +399,7 @@ fn quantity_to_number(input: &Quantity) -> u64 {
         }
     }
 }
+
 async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result<PodMetrics> {
     let client = Client::try_default()
         .await
@@ -415,12 +422,7 @@ impl Serialize for Cpu {
     where
         S: serde::Serializer,
     {
-        let mut f = Formatter::new()
-            .precision(Precision::Significance(2))
-            .suffix("m")
-            .unwrap();
-
-        serializer.serialize_str(f.fmt2(self.0))
+        serializer.serialize_str(&format!("{}m", self.0))
     }
 }
 
@@ -429,13 +431,7 @@ impl Serialize for Memory {
     where
         S: serde::Serializer,
     {
-        let mut f = Formatter::new()
-            .scales(Scales::binary())
-            .precision(Precision::Significance(2))
-            .suffix("B")
-            .unwrap();
-
-        serializer.serialize_str(f.fmt2(self.0))
+        serializer.serialize_str(&ByteSize(self.0).to_string_as(true))
     }
 }
 
