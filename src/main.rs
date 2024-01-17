@@ -70,6 +70,9 @@ enum Command {
         /// When not specified will print all pods.
         #[arg(name = "threshold", long, required = false)]
         threshold: Option<u64>,
+
+        /// Disable checking for higher cpu usage than the request.
+        no_check_higher: bool,
     },
 }
 
@@ -94,6 +97,7 @@ async fn main() -> Result<()> {
             namespaces,
             all_namespaces,
             threshold,
-        } => resource_requests(namespaces, all_namespaces, threshold).await,
+            no_check_higher,
+        } => resource_requests(namespaces, all_namespaces, threshold, no_check_higher).await,
     }
 }

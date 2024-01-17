@@ -17,6 +17,7 @@ pub(crate) async fn resource_requests(
     namespaces: Vec<String>,
     all_namespaces: bool,
     threshold: Option<u64>,
+    no_check_higher: bool,
 ) -> Result<()> {
     #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
     struct Output {
@@ -134,12 +135,14 @@ pub(crate) async fn resource_requests(
             }
 
             // Check if cpu_usage is below the requests_cpu threshold
-            if let Some(threshold) = threshold {
-                if let Some(cpu_usage) = pod.cpu_usage {
-                    if let Some(requests_cpu) = pod.requests_cpu {
-                        let diff = requests_cpu.saturating_sub(cpu_usage);
+            if !no_check_higher {
+                if let Some(threshold) = threshold {
+                    if let Some(cpu_usage) = pod.cpu_usage {
+                        if let Some(requests_cpu) = pod.requests_cpu {
+                            let diff = requests_cpu.saturating_sub(cpu_usage);
 
-                        return diff > threshold.into();
+                            return diff > threshold.into();
+                        }
                     }
                 }
             };
