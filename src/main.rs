@@ -4,6 +4,7 @@ use clap::{
 };
 use commands::{
     missing_health_probes::missing_health_probes,
+    readonly_root_filesystem::readonly_root_filesystem,
     resource_requests::resource_requests,
 };
 use eyre::Result;
@@ -72,16 +73,31 @@ enum Command {
         threshold: Option<u64>,
 
         /// Disable checking for higher cpu usage than the request.
+        #[arg(name = "no-check-higher", long, required = false)]
         no_check_higher: bool,
     },
-}
 
-#[derive(Debug, Ord, PartialOrd, PartialEq, Eq)]
-struct TopResult {
-    pod_name: String,
-    container_name: String,
-    cpu: u64,
-    memory: u64,
+    /// Check if pods are running with a read-only root filesystem.
+    ReadOnlyRootFilesystem {
+        /// Check the given namespaces if not defined the current one will be
+        /// used.
+        #[arg(
+            name = "namespaces",
+            long,
+            required = false,
+            conflicts_with = "all-namespaces"
+        )]
+        namespaces: Vec<String>,
+
+        /// Check all namespaces.
+        #[arg(
+            name = "all-namespaces",
+            long,
+            required = false,
+            conflicts_with = "namespaces"
+        )]
+        all_namespaces: bool,
+    },
 }
 
 #[tokio::main]
@@ -93,11 +109,17 @@ async fn main() -> Result<()> {
             namespaces,
             all_namespaces,
         } => missing_health_probes(namespaces, all_namespaces).await,
+
         Command::ResourceRequests {
             namespaces,
             all_namespaces,
             threshold,
             no_check_higher,
         } => resource_requests(namespaces, all_namespaces, threshold, no_check_higher).await,
+
+        Command::ReadOnlyRootFilesystem {
+            namespaces,
+            all_namespaces,
+        } => readonly_root_filesystem(namespaces, all_namespaces).await,
     }
 }
