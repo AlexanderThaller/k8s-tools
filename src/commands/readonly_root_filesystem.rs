@@ -84,6 +84,14 @@ mod test {
                         ..Default::default()
                     },
                     k8s_openapi::api::core::v1::Container {
+                        name: "readwrite-explicit".to_string(),
+                        security_context: Some(k8s_openapi::api::core::v1::SecurityContext {
+                            read_only_root_filesystem: Some(false),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    k8s_openapi::api::core::v1::Container {
                         name: "readwrite".to_string(),
                         ..Default::default()
                     },
@@ -93,11 +101,18 @@ mod test {
             ..Default::default()
         };
 
-        let expected = vec![NoReadOnlyRootFilesystem {
-            namespace: "test".to_string(),
-            pod_name: "pod".to_string(),
-            container_name: "readwrite".to_string(),
-        }]
+        let expected = vec![
+            NoReadOnlyRootFilesystem {
+                namespace: "test".to_string(),
+                pod_name: "pod".to_string(),
+                container_name: "readwrite-explicit".to_string(),
+            },
+            NoReadOnlyRootFilesystem {
+                namespace: "test".to_string(),
+                pod_name: "pod".to_string(),
+                container_name: "readwrite".to_string(),
+            },
+        ]
         .into_iter()
         .collect::<BTreeSet<_>>();
 
