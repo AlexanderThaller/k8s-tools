@@ -26,9 +26,16 @@ pub(crate) async fn readonly_root_filesystem(
         .flat_map(|pod| all_pod_containers_read_only(pod).unwrap())
         .collect::<Vec<_>>();
 
-    dbg!(pods);
+    println!("namespace,pod,container");
+    let output = pods
+        .iter()
+        .map(|pod| format!("{},{},{}", pod.namespace, pod.pod_name, pod.container_name))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    todo!()
+    println!("{output}");
+
+    Ok(())
 }
 
 fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFilesystem>> {
