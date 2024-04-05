@@ -43,7 +43,7 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
         .iter()
         .filter(|container| {
             if let Some(security_context) = &container.security_context {
-                security_context.read_only_root_filesystem.unwrap_or(true)
+                !security_context.read_only_root_filesystem.unwrap_or(false)
             } else {
                 true
             }
@@ -56,4 +56,56 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
         .collect();
 
     Ok(containers_not_read_only)
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeSet;
+
+    use crate::commands::readonly_root_filesystem::NoReadOnlyRootFilesystem;
+
+    #[test]
+    fn readonly_pod() {
+        let pod = k8s_openapi::api::core::v1::Pod {
+            metadata: kube::api::ObjectMeta {
+                namespace: Some("test".to_string()),
+                name: Some("pod".to_string()),
+                ..Default::default()
+            },
+
+            spec: Some(k8s_openapi::api::core::v1::PodSpec {
+                containers: vec![
+                    k8s_openapi::api::core::v1::Container {
+                        name: "readonly".to_string(),
+                        security_context: Some(k8s_openapi::api::core::v1::SecurityContext {
+                            read_only_root_filesystem: Some(true),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    k8s_openapi::api::core::v1::Container {
+                        name: "readwrite".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let expected = vec![NoReadOnlyRootFilesystem {
+            namespace: "test".to_string(),
+            pod_name: "pod".to_string(),
+            container_name: "readwrite".to_string(),
+        }]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+
+        let output = super::all_pod_containers_read_only(&pod).unwrap();
+
+        dbg!(&expected);
+        dbg!(&output);
+
+        assert_eq!(expected, output);
+    }
 }
