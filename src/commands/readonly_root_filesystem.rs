@@ -114,7 +114,7 @@ fn get_owner(pod: &Pod) -> Option<Owner> {
                                 })
                             })
                             .cloned()
-                            .unwrap()
+                            .unwrap_or(owner_reference.clone())
                     }
 
                     "Job" => {
@@ -136,7 +136,7 @@ fn get_owner(pod: &Pod) -> Option<Owner> {
                                 })
                             })
                             .cloned()
-                            .unwrap()
+                            .unwrap_or(owner_reference.clone())
                     }
 
                     _ => {
