@@ -1,15 +1,10 @@
 use bytesize::ByteSize;
 use eyre::Result;
 use k8s_openapi::{
-    api::core::v1::Pod,
+    api::{apps::v1::ReplicaSet, core::v1::Pod},
     apimachinery::pkg::api::resource::Quantity,
 };
-use kube::{
-    api::ListParams,
-    core::ObjectMeta,
-    Api,
-    Client,
-};
+use kube::{api::ListParams, core::ObjectMeta, Api, Client};
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -95,6 +90,23 @@ pub(crate) async fn get_pods(namespaces: Vec<String>, all_namespaces: bool) -> R
     }
 
     Ok(pods)
+}
+
+pub(crate) async fn get_replica_set(namespace: &str, name: &str) -> Result<ReplicaSet> {
+    let client = Client::try_default()
+        .await
+        .map_err(ApiError::CreateClient)?;
+
+    let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
+    let lp = ListParams::default().fields(&format!("metadata.name={}", name));
+
+    let mut out = api.list(&lp).await.unwrap().items;
+
+    if out.len() != 1 {
+        panic!("expected 1 replica set got {}", out.len());
+    }
+
+    Ok(out.remove(0))
 }
 
 pub(crate) async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result<PodMetrics> {

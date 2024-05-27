@@ -1,18 +1,22 @@
 use std::collections::BTreeSet;
 
-use eyre::{
-    bail,
-    Result,
-};
+use eyre::{bail, Result};
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::api::get_pods;
+use crate::api::{get_pods, get_replica_set};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) struct NoReadOnlyRootFilesystem {
     namespace: String,
+    owner: Option<Owner>,
     pod_name: String,
     container_name: String,
+}
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub(crate) struct Owner {
+    name: String,
+    kind: String,
 }
 
 pub(crate) async fn readonly_root_filesystem(
@@ -26,10 +30,25 @@ pub(crate) async fn readonly_root_filesystem(
         .flat_map(|pod| all_pod_containers_read_only(pod).unwrap())
         .collect::<Vec<_>>();
 
-    println!("namespace,pod,container");
+    println!("namespace,owner,owner_kind,pod,container");
     let output = pods
         .iter()
-        .map(|pod| format!("{},{},{}", pod.namespace, pod.pod_name, pod.container_name))
+        .map(|pod| {
+            format!(
+                "{},{},{},{},{}",
+                pod.namespace,
+                pod.owner
+                    .as_ref()
+                    .map(|owner| owner.name.as_str())
+                    .unwrap_or_default(),
+                pod.owner
+                    .as_ref()
+                    .map(|owner| owner.kind.as_str())
+                    .unwrap_or_default(),
+                pod.pod_name,
+                pod.container_name
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -57,12 +76,54 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
         })
         .map(|container| NoReadOnlyRootFilesystem {
             namespace: pod.metadata.namespace.as_ref().unwrap().to_string(),
+            owner: get_owner(pod),
             pod_name: pod.metadata.name.as_ref().unwrap().to_string(),
             container_name: container.name.clone(),
         })
         .collect();
 
     Ok(containers_not_read_only)
+}
+
+fn get_owner(pod: &Pod) -> Option<Owner> {
+    pod.metadata
+        .owner_references
+        .as_ref()
+        .and_then(|owner_references| {
+            owner_references
+                .iter()
+                .find(|owner_reference| owner_reference.controller.unwrap_or(false))
+                .map(|owner_reference| {
+                    if owner_reference.kind == "ReplicaSet" {
+                        let replica_set = tokio::task::block_in_place(|| {
+                            let handle = tokio::runtime::Handle::current();
+                            handle.block_on(get_replica_set(
+                                pod.metadata.namespace.as_ref().unwrap(),
+                                &owner_reference.name,
+                            ))
+                        })
+                        .unwrap();
+
+                        replica_set
+                            .metadata
+                            .owner_references
+                            .as_ref()
+                            .and_then(|owner_references| {
+                                owner_references.iter().find(|owner_reference| {
+                                    owner_reference.controller.unwrap_or(false)
+                                })
+                            })
+                            .cloned()
+                            .unwrap()
+                    } else {
+                        owner_reference.clone()
+                    }
+                })
+                .map(|owner_reference| Owner {
+                    name: owner_reference.name,
+                    kind: owner_reference.kind,
+                })
+        })
 }
 
 #[cfg(test)]
@@ -111,11 +172,13 @@ mod test {
         let expected = vec![
             NoReadOnlyRootFilesystem {
                 namespace: "test".to_string(),
+                owner: None,
                 pod_name: "pod".to_string(),
                 container_name: "readwrite-explicit".to_string(),
             },
             NoReadOnlyRootFilesystem {
                 namespace: "test".to_string(),
+                owner: None,
                 pod_name: "pod".to_string(),
                 container_name: "readwrite".to_string(),
             },

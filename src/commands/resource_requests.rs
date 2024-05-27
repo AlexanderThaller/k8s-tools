@@ -1,17 +1,9 @@
-use std::collections::{
-    BTreeMap,
-    BTreeSet,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use eyre::Result;
 use serde::Serialize;
 
-use crate::api::{
-    get_pod_resource_usage,
-    get_pods,
-    Cpu,
-    Memory,
-};
+use crate::api::{get_pod_resource_usage, get_pods, Cpu, Memory};
 
 pub(crate) async fn resource_requests(
     namespaces: Vec<String>,

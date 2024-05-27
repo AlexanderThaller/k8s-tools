@@ -1,11 +1,7 @@
-use clap::{
-    Parser,
-    Subcommand,
-};
+use clap::{Parser, Subcommand};
 use commands::{
     missing_health_probes::missing_health_probes,
-    readonly_root_filesystem::readonly_root_filesystem,
-    resource_requests::resource_requests,
+    readonly_root_filesystem::readonly_root_filesystem, resource_requests::resource_requests,
 };
 use eyre::Result;
 
