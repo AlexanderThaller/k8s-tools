@@ -1,7 +1,7 @@
 use bytesize::ByteSize;
 use eyre::Result;
 use k8s_openapi::{
-    api::{apps::v1::ReplicaSet, core::v1::Pod},
+    api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod},
     apimachinery::pkg::api::resource::Quantity,
 };
 use kube::{api::ListParams, core::ObjectMeta, Api, Client};
@@ -98,6 +98,23 @@ pub(crate) async fn get_replica_set(namespace: &str, name: &str) -> Result<Repli
         .map_err(ApiError::CreateClient)?;
 
     let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
+    let lp = ListParams::default().fields(&format!("metadata.name={}", name));
+
+    let mut out = api.list(&lp).await.unwrap().items;
+
+    if out.len() != 1 {
+        panic!("expected 1 replica set got {}", out.len());
+    }
+
+    Ok(out.remove(0))
+}
+
+pub(crate) async fn get_job(namespace: &str, name: &str) -> Result<Job> {
+    let client = Client::try_default()
+        .await
+        .map_err(ApiError::CreateClient)?;
+
+    let api: Api<Job> = Api::namespaced(client, namespace);
     let lp = ListParams::default().fields(&format!("metadata.name={}", name));
 
     let mut out = api.list(&lp).await.unwrap().items;

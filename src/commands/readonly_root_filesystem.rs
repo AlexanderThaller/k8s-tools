@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use eyre::{bail, Result};
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::api::{get_pods, get_replica_set};
+use crate::api::{get_job, get_pods, get_replica_set};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) struct NoReadOnlyRootFilesystem {
@@ -93,8 +93,8 @@ fn get_owner(pod: &Pod) -> Option<Owner> {
             owner_references
                 .iter()
                 .find(|owner_reference| owner_reference.controller.unwrap_or(false))
-                .map(|owner_reference| {
-                    if owner_reference.kind == "ReplicaSet" {
+                .map(|owner_reference| match owner_reference.kind.as_str() {
+                    "ReplicaSet" => {
                         let replica_set = tokio::task::block_in_place(|| {
                             let handle = tokio::runtime::Handle::current();
                             handle.block_on(get_replica_set(
@@ -115,7 +115,33 @@ fn get_owner(pod: &Pod) -> Option<Owner> {
                             })
                             .cloned()
                             .unwrap()
-                    } else {
+                    }
+
+                    "Job" => {
+                        let job = tokio::task::block_in_place(|| {
+                            let handle = tokio::runtime::Handle::current();
+                            handle.block_on(get_job(
+                                pod.metadata.namespace.as_ref().unwrap(),
+                                &owner_reference.name,
+                            ))
+                        })
+                        .unwrap();
+
+                        job.metadata
+                            .owner_references
+                            .as_ref()
+                            .and_then(|owner_references| {
+                                owner_references.iter().find(|owner_reference| {
+                                    owner_reference.controller.unwrap_or(false)
+                                })
+                            })
+                            .cloned()
+                            .unwrap()
+                    }
+
+                    _ => {
+                        dbg!(&owner_reference.kind);
+
                         owner_reference.clone()
                     }
                 })
