@@ -1,8 +1,8 @@
 use bytesize::ByteSize;
 use eyre::Result;
 use k8s_openapi::{
-    api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod},
-    apimachinery::pkg::api::resource::Quantity,
+    api::core::v1::Pod,
+    apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::OwnerReference},
 };
 use kube::{api::ListParams, core::ObjectMeta, Api, Client};
 use serde::Serialize;
@@ -42,6 +42,12 @@ pub(crate) struct PodMetrics {
     #[allow(unused)]
     pub(crate) window: String,
     pub(crate) containers: Vec<PodMetricsContainer>,
+}
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub(crate) struct Owner {
+    pub(crate) name: String,
+    pub(crate) kind: String,
 }
 
 impl k8s_openapi::Resource for PodMetrics {
@@ -92,12 +98,33 @@ pub(crate) async fn get_pods(namespaces: Vec<String>, all_namespaces: bool) -> R
     Ok(pods)
 }
 
-pub(crate) async fn get_replica_set(namespace: &str, name: &str) -> Result<ReplicaSet> {
+pub(crate) fn get_sync<T>(namespace: &str, name: &str) -> Result<T>
+where
+    T: k8s_openapi::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+        + Clone
+        + serde::de::DeserializeOwned
+        + std::fmt::Debug
+        + k8s_openapi::Metadata<Ty = ObjectMeta>,
+{
+    tokio::task::block_in_place(|| {
+        let handle = tokio::runtime::Handle::current();
+        handle.block_on(get::<T>(namespace, name))
+    })
+}
+
+pub(crate) async fn get<T>(namespace: &str, name: &str) -> Result<T>
+where
+    T: k8s_openapi::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+        + Clone
+        + serde::de::DeserializeOwned
+        + std::fmt::Debug
+        + k8s_openapi::Metadata<Ty = ObjectMeta>,
+{
     let client = Client::try_default()
         .await
         .map_err(ApiError::CreateClient)?;
 
-    let api: Api<ReplicaSet> = Api::namespaced(client, namespace);
+    let api: Api<T> = Api::namespaced(client, namespace);
     let lp = ListParams::default().fields(&format!("metadata.name={}", name));
 
     let mut out = api.list(&lp).await.unwrap().items;
@@ -109,21 +136,23 @@ pub(crate) async fn get_replica_set(namespace: &str, name: &str) -> Result<Repli
     Ok(out.remove(0))
 }
 
-pub(crate) async fn get_job(namespace: &str, name: &str) -> Result<Job> {
-    let client = Client::try_default()
-        .await
-        .map_err(ApiError::CreateClient)?;
-
-    let api: Api<Job> = Api::namespaced(client, namespace);
-    let lp = ListParams::default().fields(&format!("metadata.name={}", name));
-
-    let mut out = api.list(&lp).await.unwrap().items;
-
-    if out.len() != 1 {
-        panic!("expected 1 replica set got {}", out.len());
-    }
-
-    Ok(out.remove(0))
+pub(crate) fn extract_owner<T>(object: &T) -> Option<&OwnerReference>
+where
+    T: k8s_openapi::Resource<Scope = k8s_openapi::NamespaceResourceScope>
+        + Clone
+        + serde::de::DeserializeOwned
+        + std::fmt::Debug
+        + k8s_openapi::Metadata<Ty = ObjectMeta>,
+{
+    object
+        .metadata()
+        .owner_references
+        .as_ref()
+        .and_then(|owner_references| {
+            owner_references
+                .iter()
+                .find(|owner_reference| owner_reference.controller.unwrap_or(false))
+        })
 }
 
 pub(crate) async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result<PodMetrics> {
