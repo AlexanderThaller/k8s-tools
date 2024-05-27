@@ -1,7 +1,7 @@
 use eyre::Result;
 use serde::Serialize;
 
-use crate::api::get_pods;
+use crate::api::{get_pod_owner, get_pods, Owner};
 
 pub(crate) async fn missing_health_probes(
     namespaces: Vec<String>,
@@ -10,6 +10,7 @@ pub(crate) async fn missing_health_probes(
     #[derive(Debug, Serialize)]
     struct Output {
         pod_name: String,
+        owner: Option<Owner>,
         container_name: String,
         liveness_probe: Option<String>,
         readiness_probe: Option<String>,
@@ -28,7 +29,7 @@ pub(crate) async fn missing_health_probes(
                 .unwrap()
                 .containers
                 .iter()
-                .any(|container| {
+                .all(|container| {
                     container.liveness_probe.is_some() || container.readiness_probe.is_some()
                 })
         })
@@ -53,9 +54,13 @@ pub(crate) async fn missing_health_probes(
                 })
                 .map(|(container_name, liveness_probe, readiness_probe)| Output {
                     pod_name: pod.metadata.name.as_ref().unwrap().clone(),
+                    owner: get_pod_owner(pod),
                     container_name,
                     liveness_probe,
                     readiness_probe,
+                })
+                .filter(|output| {
+                    output.liveness_probe.is_none() && output.readiness_probe.is_none()
                 })
         })
         .collect();

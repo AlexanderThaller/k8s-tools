@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use eyre::{bail, Result};
-use k8s_openapi::api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod};
+use k8s_openapi::api::core::v1::Pod;
+use serde::Serialize;
 
-use crate::api::{extract_owner, get, get_pods, get_sync, Owner};
+use crate::api::{get_pod_owner, get_pods, Owner};
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 pub(crate) struct NoReadOnlyRootFilesystem {
     namespace: String,
     owner: Option<Owner>,
@@ -24,27 +25,7 @@ pub(crate) async fn readonly_root_filesystem(
         .flat_map(|pod| all_pod_containers_read_only(pod).unwrap())
         .collect::<Vec<_>>();
 
-    println!("namespace,owner,owner_kind,pod,container");
-    let output = pods
-        .iter()
-        .map(|pod| {
-            format!(
-                "{},{},{},{},{}",
-                pod.namespace,
-                pod.owner
-                    .as_ref()
-                    .map(|owner| owner.name.as_str())
-                    .unwrap_or_default(),
-                pod.owner
-                    .as_ref()
-                    .map(|owner| owner.kind.as_str())
-                    .unwrap_or_default(),
-                pod.pod_name,
-                pod.container_name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let output = serde_json::to_string_pretty(&pods)?;
 
     println!("{output}");
 
@@ -70,53 +51,13 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
         })
         .map(|container| NoReadOnlyRootFilesystem {
             namespace: pod.metadata.namespace.as_ref().unwrap().to_string(),
-            owner: get_owner(pod),
+            owner: get_pod_owner(pod),
             pod_name: pod.metadata.name.as_ref().unwrap().to_string(),
             container_name: container.name.clone(),
         })
         .collect();
 
     Ok(containers_not_read_only)
-}
-
-fn get_owner(pod: &Pod) -> Option<Owner> {
-    pod.metadata
-        .owner_references
-        .as_ref()
-        .and_then(|owner_references| {
-            owner_references
-                .iter()
-                .find(|owner_reference| owner_reference.controller.unwrap_or(false))
-                .map(|owner_reference| match owner_reference.kind.as_str() {
-                    "ReplicaSet" => {
-                        let replica_set = get_sync::<ReplicaSet>(
-                            pod.metadata.namespace.as_ref().unwrap(),
-                            &owner_reference.name,
-                        )
-                        .unwrap();
-
-                        extract_owner(&replica_set)
-                            .unwrap_or(owner_reference)
-                            .clone()
-                    }
-
-                    "Job" => {
-                        let job = get_sync::<Job>(
-                            pod.metadata.namespace.as_ref().unwrap(),
-                            &owner_reference.name,
-                        )
-                        .unwrap();
-
-                        extract_owner(&job).unwrap_or(owner_reference).clone()
-                    }
-
-                    _ => owner_reference.clone(),
-                })
-                .map(|owner_reference| Owner {
-                    name: owner_reference.name,
-                    kind: owner_reference.kind,
-                })
-        })
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use bytesize::ByteSize;
 use eyre::Result;
 use k8s_openapi::{
-    api::core::v1::Pod,
+    api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod},
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::OwnerReference},
 };
 use kube::{api::ListParams, core::ObjectMeta, Api, Client};
@@ -44,7 +44,7 @@ pub(crate) struct PodMetrics {
     pub(crate) containers: Vec<PodMetricsContainer>,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Clone)]
 pub(crate) struct Owner {
     pub(crate) name: String,
     pub(crate) kind: String,
@@ -134,6 +134,46 @@ where
     }
 
     Ok(out.remove(0))
+}
+
+pub(crate) fn get_pod_owner(pod: &Pod) -> Option<Owner> {
+    pod.metadata
+        .owner_references
+        .as_ref()
+        .and_then(|owner_references| {
+            owner_references
+                .iter()
+                .find(|owner_reference| owner_reference.controller.unwrap_or(false))
+                .map(|owner_reference| match owner_reference.kind.as_str() {
+                    "ReplicaSet" => {
+                        let replica_set = get_sync::<ReplicaSet>(
+                            pod.metadata.namespace.as_ref().unwrap(),
+                            &owner_reference.name,
+                        )
+                        .unwrap();
+
+                        extract_owner(&replica_set)
+                            .unwrap_or(owner_reference)
+                            .clone()
+                    }
+
+                    "Job" => {
+                        let job = get_sync::<Job>(
+                            pod.metadata.namespace.as_ref().unwrap(),
+                            &owner_reference.name,
+                        )
+                        .unwrap();
+
+                        extract_owner(&job).unwrap_or(owner_reference).clone()
+                    }
+
+                    _ => owner_reference.clone(),
+                })
+                .map(|owner_reference| Owner {
+                    name: owner_reference.name,
+                    kind: owner_reference.kind,
+                })
+        })
 }
 
 pub(crate) fn extract_owner<T>(object: &T) -> Option<&OwnerReference>
