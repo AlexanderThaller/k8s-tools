@@ -1,4 +1,5 @@
 use bytesize::ByteSize;
+use eyre::eyre;
 use eyre::{Context, Result};
 use k8s_openapi::{
     api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod},
@@ -245,19 +246,27 @@ impl Serialize for Memory {
     }
 }
 
-impl From<&Quantity> for Cpu {
-    fn from(value: &Quantity) -> Self {
-        Self(quantity_to_number(value))
+impl TryFrom<&Quantity> for Cpu {
+    type Error = eyre::Error;
+
+    fn try_from(value: &Quantity) -> Result<Self, Self::Error> {
+        let number = quantity_to_number(value).wrap_err("failed to convert quantity to number")?;
+
+        Ok(Self(number))
     }
 }
 
-impl From<&Quantity> for Memory {
-    fn from(value: &Quantity) -> Self {
-        Self(quantity_to_number(value))
+impl TryFrom<&Quantity> for Memory {
+    type Error = eyre::Error;
+
+    fn try_from(value: &Quantity) -> Result<Self, Self::Error> {
+        let number = quantity_to_number(value).wrap_err("failed to convert quantity to number")?;
+
+        Ok(Self(number))
     }
 }
 
-fn quantity_to_number(input: &Quantity) -> u64 {
+fn quantity_to_number(input: &Quantity) -> Result<u64> {
     let mut number = String::new();
     let mut suffix = String::new();
 
@@ -280,7 +289,7 @@ fn quantity_to_number(input: &Quantity) -> u64 {
 
     let number = number.parse().expect("failed to parse number");
 
-    if suffix.is_empty() {
+    let number = if suffix.is_empty() {
         number * 1000
     } else {
         match suffix.as_str() {
@@ -292,10 +301,12 @@ fn quantity_to_number(input: &Quantity) -> u64 {
             "Gi" => number * 1024 * 1024 * 1024,
 
             _ => {
-                panic!("invalid suffix {suffix}");
+                return Err(eyre!("invalid suffix {suffix}"));
             }
         }
-    }
+    };
+
+    Ok(number)
 }
 
 impl Cpu {
@@ -311,6 +322,7 @@ impl From<u64> for Cpu {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 
@@ -326,7 +338,7 @@ mod tests {
         for (input, expected) in testcases {
             let input: Quantity = Quantity(input.to_string());
 
-            let output = super::quantity_to_number(&input);
+            let output = super::quantity_to_number(&input).unwrap();
             assert_eq!(expected, output);
         }
     }

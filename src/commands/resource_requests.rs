@@ -68,6 +68,7 @@ pub(crate) async fn resource_requests(
             pod.status.as_ref().expect("failed to get status").phase == Some("Running".to_string())
         })
         .flat_map(pod_to_output)
+        .flatten()
         .collect::<BTreeSet<PodOutput>>();
 
     let mut tops = BTreeMap::new();
@@ -90,9 +91,17 @@ pub(crate) async fn resource_requests(
                     .iter()
                     .find(|container| container.name == pod.container_name);
 
-                let cpu_usage = container_usage.map(|container| (&container.usage.cpu).into());
-                let memory_usage =
-                    container_usage.map(|container| (&container.usage.memory).into());
+                let cpu_usage = container_usage.map(|container| {
+                    (&container.usage.cpu)
+                        .try_into()
+                        .expect("failed to convert cpu usage")
+                });
+
+                let memory_usage = container_usage.map(|container| {
+                    (&container.usage.memory)
+                        .try_into()
+                        .expect("failed to convert memory usage")
+                });
 
                 let resources = pod
                     .resources
@@ -167,7 +176,7 @@ impl std::ops::AddAssign<&PodOutput> for TotalNamespace {
     }
 }
 
-fn pod_to_output(pod: Pod) -> impl Iterator<Item = PodOutput> {
+fn pod_to_output(pod: Pod) -> Result<Vec<PodOutput>> {
     let owner = get_pod_owner(&pod);
 
     let metadata = pod.metadata;
@@ -182,6 +191,7 @@ fn pod_to_output(pod: Pod) -> impl Iterator<Item = PodOutput> {
         .map(move |container| {
             generate_pod_output(name.clone(), namespace.clone(), owner.clone(), container)
         })
+        .collect()
 }
 
 fn generate_pod_output(
@@ -189,7 +199,7 @@ fn generate_pod_output(
     namespace: String,
     owner: Option<Owner>,
     container: Container,
-) -> PodOutput {
+) -> Result<PodOutput> {
     let requests_cpu = container
         .resources
         .as_ref()
@@ -197,7 +207,9 @@ fn generate_pod_output(
         .requests
         .as_ref()
         .and_then(|requests| requests.get("cpu"))
-        .map(Cpu::from);
+        .map(Cpu::try_from)
+        .transpose()
+        .context("failed to convert cpu requests")?;
 
     let requests_cpu_milliseconds = requests_cpu.map(api::Cpu::to_milliseconds);
 
@@ -208,7 +220,9 @@ fn generate_pod_output(
         .requests
         .as_ref()
         .and_then(|requests| requests.get("memory"))
-        .map(Memory::from);
+        .map(Memory::try_from)
+        .transpose()
+        .context("failed to convert memory requests")?;
 
     let requests_memory_bytes = requests_memory.map(api::Memory::to_bytes);
 
@@ -219,7 +233,9 @@ fn generate_pod_output(
         .limits
         .as_ref()
         .and_then(|limits| limits.get("cpu"))
-        .map(Cpu::from);
+        .map(Cpu::try_from)
+        .transpose()
+        .context("failed to convert cpu limits")?;
 
     let limits_cpu_milliseconds = limits_cpu.map(api::Cpu::to_milliseconds);
 
@@ -229,11 +245,13 @@ fn generate_pod_output(
         .limits
         .as_ref()
         .and_then(|limits| limits.get("memory"))
-        .map(Memory::from);
+        .map(Memory::try_from)
+        .transpose()
+        .context("failed to convert memory limits")?;
 
     let limits_memory_bytes = limits_memory.map(api::Memory::to_bytes);
 
-    PodOutput {
+    Ok(PodOutput {
         namespace,
         pod_name,
         container_name: container.name,
@@ -254,7 +272,7 @@ fn generate_pod_output(
             memory_usage: None,
             memory_usage_bytes: None,
         },
-    }
+    })
 }
 
 impl std::ops::Add<&Resources> for &Resources {
