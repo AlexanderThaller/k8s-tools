@@ -1,5 +1,5 @@
 use bytesize::ByteSize;
-use eyre::Result;
+use eyre::{Context, Result};
 use k8s_openapi::{
     api::{apps::v1::ReplicaSet, batch::v1::Job, core::v1::Pod},
     apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::OwnerReference},
@@ -127,7 +127,11 @@ where
     let api: Api<T> = Api::namespaced(client, namespace);
     let lp = ListParams::default().fields(&format!("metadata.name={name}"));
 
-    let mut out = api.list(&lp).await.unwrap().items;
+    let mut out = api
+        .list(&lp)
+        .await
+        .with_context(|| "failed to get from kubernetes api")?
+        .items;
 
     assert!(out.len() == 1, "expected 1 replica set got {}", out.len());
 
@@ -145,7 +149,10 @@ pub(crate) fn get_pod_owner(pod: &Pod) -> Option<Owner> {
                 .map(|owner_reference| match owner_reference.kind.as_str() {
                     "ReplicaSet" => {
                         let replica_set = get_sync::<ReplicaSet>(
-                            pod.metadata.namespace.as_ref().unwrap(),
+                            pod.metadata
+                                .namespace
+                                .as_ref()
+                                .expect("failed to get namespace"),
                             &owner_reference.name,
                         )
                         .expect("failed to get replica set");
@@ -157,7 +164,10 @@ pub(crate) fn get_pod_owner(pod: &Pod) -> Option<Owner> {
 
                     "Job" => {
                         let job = get_sync::<Job>(
-                            pod.metadata.namespace.as_ref().unwrap(),
+                            pod.metadata
+                                .namespace
+                                .as_ref()
+                                .expect("failed to get namespace"),
                             &owner_reference.name,
                         )
                         .expect("failed to get job");

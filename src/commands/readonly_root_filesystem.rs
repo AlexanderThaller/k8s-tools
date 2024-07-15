@@ -22,7 +22,9 @@ pub(crate) async fn readonly_root_filesystem(
 
     let pods = pods
         .iter()
-        .flat_map(|pod| all_pod_containers_read_only(pod).unwrap())
+        .flat_map(|pod| {
+            all_pod_containers_read_only(pod).expect("failed to get all pod containers")
+        })
         .collect::<Vec<_>>();
 
     let output = serde_json::to_string_pretty(&pods)?;
@@ -37,7 +39,7 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
         bail!("Pod has no spec");
     }
 
-    let spec = pod.spec.as_ref().unwrap();
+    let spec = pod.spec.as_ref().expect("failed to get spec");
 
     let containers_not_read_only = spec
         .containers
@@ -50,10 +52,23 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
             }
         })
         .map(|container| NoReadOnlyRootFilesystem {
-            namespace: pod.metadata.namespace.as_ref().unwrap().to_string(),
-            owner: get_pod_owner(pod),
-            pod_name: pod.metadata.name.as_ref().unwrap().to_string(),
+            namespace: pod
+                .metadata
+                .namespace
+                .as_ref()
+                .expect("failed to get namespace")
+                .to_string(),
+
+            pod_name: pod
+                .metadata
+                .name
+                .as_ref()
+                .expect("failed to get name")
+                .to_string(),
+
             container_name: container.name.clone(),
+
+            owner: get_pod_owner(pod),
         })
         .collect();
 
@@ -61,6 +76,7 @@ fn all_pod_containers_read_only(pod: &Pod) -> Result<BTreeSet<NoReadOnlyRootFile
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod test {
     use std::collections::BTreeSet;
 

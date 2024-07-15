@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use eyre::Result;
+use eyre::{Context, Result};
 use k8s_openapi::api::core::v1::{Container, Pod};
 use log::warn;
 use serde::Serialize;
@@ -64,7 +64,9 @@ pub(crate) async fn resource_requests(
     let output = pods
         .into_iter()
         .filter(|pod| pod.status.is_some())
-        .filter(|pod| pod.status.as_ref().unwrap().phase == Some("Running".to_string()))
+        .filter(|pod| {
+            pod.status.as_ref().expect("failed to get status").phase == Some("Running".to_string())
+        })
         .flat_map(pod_to_output)
         .collect::<BTreeSet<PodOutput>>();
 
@@ -72,7 +74,8 @@ pub(crate) async fn resource_requests(
     for pod in &output {
         let top = get_pod_resource_usage(&pod.namespace, &pod.pod_name)
             .await
-            .unwrap();
+            .with_context(|| "failed to get pod resource usage")?;
+
         tops.insert(pod.pod_name.clone(), top);
     }
 

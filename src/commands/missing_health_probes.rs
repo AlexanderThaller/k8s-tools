@@ -21,12 +21,14 @@ pub(crate) async fn missing_health_probes(
     let pods: Vec<_> = pods
         .iter()
         .filter(|pod| pod.status.is_some())
-        .filter(|pod| pod.status.as_ref().unwrap().phase == Some("Running".to_string()))
+        .filter(|pod| {
+            pod.status.as_ref().expect("failed to get status").phase == Some("Running".to_string())
+        })
         .filter(|pod| pod.spec.is_some())
         .filter(|pod| {
             !pod.spec
                 .as_ref()
-                .unwrap()
+                .expect("failed to get spec")
                 .containers
                 .iter()
                 .all(|container| {
@@ -36,7 +38,7 @@ pub(crate) async fn missing_health_probes(
         .flat_map(|pod| {
             pod.spec
                 .as_ref()
-                .unwrap()
+                .expect("failed to get spec")
                 .containers
                 .iter()
                 .map(|container| {
@@ -53,7 +55,13 @@ pub(crate) async fn missing_health_probes(
                     )
                 })
                 .map(|(container_name, liveness_probe, readiness_probe)| Output {
-                    pod_name: pod.metadata.name.as_ref().unwrap().clone(),
+                    pod_name: pod
+                        .metadata
+                        .name
+                        .as_ref()
+                        .expect("failed to get name")
+                        .clone(),
+
                     owner: get_pod_owner(pod),
                     container_name,
                     liveness_probe,
