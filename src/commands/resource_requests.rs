@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use eyre::{Context, Result};
 use k8s_openapi::api::core::v1::{Container, Pod};
-use log::warn;
+use log::{info, warn};
 use serde::Serialize;
 
 use crate::api::{self, get_pod_owner, get_pod_resource_usage, get_pods, Cpu, Memory, Owner};
@@ -65,7 +65,10 @@ pub(crate) async fn resource_requests(
         .into_iter()
         .filter(|pod| pod.status.is_some())
         .filter(|pod| {
-            pod.status.as_ref().expect("failed to get status").phase == Some("Running".to_string())
+            if let Some(name) = &pod.metadata.name {
+                info!("Ignoring not running pod: {name}");
+            }
+            pod.status.as_ref().map(|status| status.phase.as_deref()) == Some(Some("Running"))
         })
         .flat_map(pod_to_output)
         .flatten()
