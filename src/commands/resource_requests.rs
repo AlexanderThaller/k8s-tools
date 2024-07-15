@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use eyre::Result;
+use k8s_openapi::api::core::v1::{Container, Pod};
 use log::warn;
 use serde::Serialize;
 
@@ -49,70 +50,7 @@ pub(crate) async fn resource_requests(
         .into_iter()
         .filter(|pod| pod.status.is_some())
         .filter(|pod| pod.status.as_ref().unwrap().phase == Some("Running".to_string()))
-        .flat_map(|pod| {
-            let owner = get_pod_owner(&pod);
-
-            pod.spec
-                .expect("missing spec")
-                .containers
-                .into_iter()
-                .filter(|container| container.resources.is_some())
-                .map(move |container| PodOutput {
-                    pod_name: pod
-                        .metadata
-                        .name
-                        .as_ref()
-                        .expect("missing pod name")
-                        .clone(),
-
-                    container_name: container.name,
-                    namespace: pod
-                        .metadata
-                        .namespace
-                        .as_ref()
-                        .expect("missing namespace")
-                        .clone(),
-
-                    requests_cpu: container
-                        .resources
-                        .as_ref()
-                        .expect("missing resources")
-                        .requests
-                        .as_ref()
-                        .and_then(|requests| requests.get("cpu"))
-                        .map(Cpu::from),
-
-                    requests_memory: container
-                        .resources
-                        .as_ref()
-                        .expect("missing resources")
-                        .requests
-                        .as_ref()
-                        .and_then(|requests| requests.get("memory"))
-                        .map(Memory::from),
-
-                    limits_cpu: container
-                        .resources
-                        .as_ref()
-                        .expect("missing resources")
-                        .limits
-                        .as_ref()
-                        .and_then(|limits| limits.get("cpu"))
-                        .map(Cpu::from),
-
-                    limits_memory: container
-                        .resources
-                        .expect("missing resources")
-                        .limits
-                        .as_ref()
-                        .and_then(|limits| limits.get("memory"))
-                        .map(Memory::from),
-
-                    cpu_usage: None,
-                    memory_usage: None,
-                    owner: owner.clone(),
-                })
-        })
+        .flat_map(pod_to_output)
         .collect::<BTreeSet<PodOutput>>();
 
     let mut tops = BTreeMap::new();
@@ -216,5 +154,80 @@ impl std::ops::AddAssign<&PodOutput> for TotalNamespace {
         self.requests_memory = add_option(self.requests_memory, rhs.requests_memory);
         self.limits_memory = add_option(self.limits_memory, rhs.limits_memory);
         self.memory_usage = add_option(self.memory_usage, rhs.memory_usage);
+    }
+}
+
+fn pod_to_output(pod: Pod) -> impl Iterator<Item = PodOutput> {
+    let owner = get_pod_owner(&pod);
+
+    let metadata = pod.metadata;
+    let name = metadata.name.expect("missing pod name");
+    let namespace = metadata.namespace.expect("missing pod name");
+    let spec = pod.spec.expect("missing pod spec");
+    let containers = spec.containers;
+
+    containers
+        .into_iter()
+        .filter(|container| container.resources.is_some())
+        .map(move |container| {
+            generate_pod_output(name.clone(), namespace.clone(), owner.clone(), container)
+        })
+}
+
+fn generate_pod_output(
+    pod_name: String,
+    namespace: String,
+    owner: Option<Owner>,
+    container: Container,
+) -> PodOutput {
+    let requests_cpu = container
+        .resources
+        .as_ref()
+        .expect("missing resources")
+        .requests
+        .as_ref()
+        .and_then(|requests| requests.get("cpu"))
+        .map(Cpu::from);
+
+    let requests_memory = container
+        .resources
+        .as_ref()
+        .expect("missing resources")
+        .requests
+        .as_ref()
+        .and_then(|requests| requests.get("memory"))
+        .map(Memory::from);
+
+    let limits_cpu = container
+        .resources
+        .as_ref()
+        .expect("missing resources")
+        .limits
+        .as_ref()
+        .and_then(|limits| limits.get("cpu"))
+        .map(Cpu::from);
+
+    let limits_memory = container
+        .resources
+        .expect("missing resources")
+        .limits
+        .as_ref()
+        .and_then(|limits| limits.get("memory"))
+        .map(Memory::from);
+
+    PodOutput {
+        pod_name,
+        namespace,
+        owner,
+
+        container_name: container.name,
+
+        requests_cpu,
+        requests_memory,
+        limits_cpu,
+        limits_memory,
+
+        cpu_usage: None,
+        memory_usage: None,
     }
 }
