@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use eyre::Result;
 use serde::Serialize;
 
-use crate::api::{get_pod_resource_usage, get_pods, Cpu, Memory};
+use crate::api::{get_pod_owner, get_pod_resource_usage, get_pods, Cpu, Memory, Owner};
 
 pub(crate) async fn resource_requests(
     namespaces: Vec<String>,
@@ -22,6 +22,7 @@ pub(crate) async fn resource_requests(
         pod_name: String,
         container_name: String,
         namespace: String,
+        owner: Option<Owner>,
     }
 
     let pods = get_pods(namespaces, all_namespaces).await?;
@@ -31,6 +32,8 @@ pub(crate) async fn resource_requests(
         .filter(|pod| pod.status.is_some())
         .filter(|pod| pod.status.as_ref().unwrap().phase == Some("Running".to_string()))
         .flat_map(|pod| {
+            let owner = get_pod_owner(&pod);
+
             pod.spec
                 .expect("missing spec")
                 .containers
@@ -89,6 +92,7 @@ pub(crate) async fn resource_requests(
 
                     cpu_usage: None,
                     memory_usage: None,
+                    owner: owner.clone(),
                 })
         })
         .collect::<BTreeSet<Output>>();
