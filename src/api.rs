@@ -337,3 +337,15 @@ impl std::ops::Add<Memory> for Memory {
         Self(self.0 + rhs.0)
     }
 }
+
+impl Cpu {
+    pub(crate) fn to_milliseconds(self) -> u64 {
+        self.0
+    }
+}
+
+impl Memory {
+    pub(crate) fn to_bytes(self) -> u64 {
+        self.0
+    }
+}
