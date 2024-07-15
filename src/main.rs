@@ -11,7 +11,7 @@ use commands::{
     missing_health_probes::missing_health_probes,
     readonly_root_filesystem::readonly_root_filesystem, resource_requests::resource_requests,
 };
-use eyre::Result;
+use eyre::{Context, Result};
 use log::LevelFilter;
 
 mod api;
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     std::env::set_var("RUST_LOG", args.log_level.as_str());
-    pretty_env_logger::try_init_timed()?;
+    pretty_env_logger::try_init_timed().context("failed to initialize logger")?;
 
     match args.command {
         Command::MissingHealthProbes {
