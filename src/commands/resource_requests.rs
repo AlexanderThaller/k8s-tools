@@ -107,18 +107,25 @@ pub(crate) async fn resource_requests(
 
     let output = output
         .into_iter()
-        .map(|pod| {
-            let usage = tops.get(&pod.pod_name).unwrap();
-            let container_usage = usage
-                .containers
-                .iter()
-                .find(|container| container.name == pod.container_name);
+        .filter_map(|pod| {
+            let usage = tops.get(&pod.pod_name).expect("failed to get usage");
 
-            Output {
-                cpu_usage: container_usage.map(|container| (&container.usage.cpu).into()),
-                memory_usage: container_usage.map(|container| (&container.usage.memory).into()),
-                ..pod
+            if usage.is_none() {
+                eprintln!("Failed to get usage for pod: {}", pod.pod_name);
             }
+
+            usage.as_ref().map(|usage| {
+                let container_usage = usage
+                    .containers
+                    .iter()
+                    .find(|container| container.name == pod.container_name);
+
+                Output {
+                    cpu_usage: container_usage.map(|container| (&container.usage.cpu).into()),
+                    memory_usage: container_usage.map(|container| (&container.usage.memory).into()),
+                    ..pod
+                }
+            })
         })
         .filter(|pod| {
             // Check if cpu_usage is higher than requests_cpu

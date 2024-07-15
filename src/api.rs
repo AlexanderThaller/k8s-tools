@@ -150,7 +150,7 @@ pub(crate) fn get_pod_owner(pod: &Pod) -> Option<Owner> {
                             pod.metadata.namespace.as_ref().unwrap(),
                             &owner_reference.name,
                         )
-                        .unwrap();
+                        .expect("failed to get replica set");
 
                         extract_owner(&replica_set)
                             .unwrap_or(owner_reference)
@@ -162,7 +162,7 @@ pub(crate) fn get_pod_owner(pod: &Pod) -> Option<Owner> {
                             pod.metadata.namespace.as_ref().unwrap(),
                             &owner_reference.name,
                         )
-                        .unwrap();
+                        .expect("failed to get job");
 
                         extract_owner(&job).unwrap_or(owner_reference).clone()
                     }
@@ -195,7 +195,10 @@ where
         })
 }
 
-pub(crate) async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result<PodMetrics> {
+pub(crate) async fn get_pod_resource_usage(
+    namespace: &str,
+    pod: &str,
+) -> Result<Option<PodMetrics>> {
     let client = Client::try_default()
         .await
         .map_err(ApiError::CreateClient)?;
@@ -203,13 +206,17 @@ pub(crate) async fn get_pod_resource_usage(namespace: &str, pod: &str) -> Result
     let api: Api<PodMetrics> = Api::namespaced(client.clone(), namespace);
     let lp = ListParams::default().fields(&format!("metadata.name={}", pod));
 
-    let mut out = api.list(&lp).await.unwrap().items;
+    let mut out = api
+        .list(&lp)
+        .await
+        .expect("failed to list pod metrics")
+        .items;
 
     if out.len() != 1 {
-        panic!("expected 1 pod got {}", out.len());
+        return Ok(None);
     }
 
-    Ok(out.remove(0))
+    Ok(Some(out.remove(0)))
 }
 
 impl Serialize for Cpu {
