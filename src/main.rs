@@ -4,6 +4,7 @@ use commands::{
     readonly_root_filesystem::readonly_root_filesystem, resource_requests::resource_requests,
 };
 use eyre::Result;
+use log::{error, info, warn, LevelFilter};
 
 mod api;
 mod commands;
@@ -11,6 +12,10 @@ mod commands;
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// The log level to run under.
+    #[arg(long, env, default_value = "info")]
+    pub log_level: LevelFilter,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -99,6 +104,9 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    std::env::set_var("RUST_LOG", args.log_level.as_str());
+    pretty_env_logger::try_init_timed()?;
 
     match args.command {
         Command::MissingHealthProbes {

@@ -16,10 +16,10 @@ enum ApiError {
     ListPods(kube::Error),
 }
 
-#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy, Default)]
 pub(crate) struct Memory(u64);
 
-#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Ord, PartialOrd, PartialEq, Eq, Clone, Copy, Default)]
 pub(crate) struct Cpu(u64);
 
 #[derive(serde::Deserialize, Clone, Debug)]
@@ -325,5 +325,21 @@ mod tests {
             let output = super::quantity_to_number(&input);
             assert_eq!(expected, output);
         }
+    }
+}
+
+impl std::ops::Add<Cpu> for Cpu {
+    type Output = Cpu;
+
+    fn add(self, rhs: Cpu) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::Add<Memory> for Memory {
+    type Output = Memory;
+
+    fn add(self, rhs: Memory) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }

@@ -9,24 +9,47 @@ spec:
   selector:
     matchLabels:
       app: test
+  replicas: 1
   template:
     metadata:
       labels:
         app: test
     spec:
       containers:
-      - name: nocheck
-        image: nginx
-
-      - name: check
-        image: nginx
-
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
+        - name: nocheck
+          image: caddy
+          command:
+            - caddy
+            - respond
+            - --listen
+            - :2000-2004
+            - "I'm server {{.N}} on port {{.Port}}"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
+        - name: check
+          image: nginx
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+        - name: stress
+          image: progrium/stress
+          args:
+            - --cpu
+            - "1"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
