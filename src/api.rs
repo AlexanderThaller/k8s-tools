@@ -125,13 +125,11 @@ where
         .map_err(ApiError::CreateClient)?;
 
     let api: Api<T> = Api::namespaced(client, namespace);
-    let lp = ListParams::default().fields(&format!("metadata.name={}", name));
+    let lp = ListParams::default().fields(&format!("metadata.name={name}"));
 
     let mut out = api.list(&lp).await.unwrap().items;
 
-    if out.len() != 1 {
-        panic!("expected 1 replica set got {}", out.len());
-    }
+    assert!(out.len() == 1, "expected 1 replica set got {}", out.len());
 
     Ok(out.remove(0))
 }
@@ -204,7 +202,7 @@ pub(crate) async fn get_pod_resource_usage(
         .map_err(ApiError::CreateClient)?;
 
     let api: Api<PodMetrics> = Api::namespaced(client.clone(), namespace);
-    let lp = ListParams::default().fields(&format!("metadata.name={}", pod));
+    let lp = ListParams::default().fields(&format!("metadata.name={pod}"));
 
     let mut out = api
         .list(&lp)
@@ -284,7 +282,6 @@ fn quantity_to_number(input: &Quantity) -> u64 {
             "Gi" => number * 1024 * 1024 * 1024,
 
             _ => {
-                dbg!(input);
                 panic!("invalid suffix {suffix}");
             }
         }
@@ -318,9 +315,6 @@ mod tests {
 
         for (input, expected) in testcases {
             let input: Quantity = Quantity(input.to_string());
-
-            dbg!(&input);
-            dbg!(&expected);
 
             let output = super::quantity_to_number(&input);
             assert_eq!(expected, output);

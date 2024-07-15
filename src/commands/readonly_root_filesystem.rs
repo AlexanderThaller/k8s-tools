@@ -122,9 +122,6 @@ mod test {
 
         let output = super::all_pod_containers_read_only(&pod).unwrap();
 
-        dbg!(&expected);
-        dbg!(&output);
-
         assert_eq!(expected, output);
     }
 }

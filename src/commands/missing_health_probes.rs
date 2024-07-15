@@ -45,11 +45,11 @@ pub(crate) async fn missing_health_probes(
                         container
                             .liveness_probe
                             .as_ref()
-                            .map(|probe| format!("{:?}", probe)),
+                            .map(|probe| format!("{probe:?}")),
                         container
                             .readiness_probe
                             .as_ref()
-                            .map(|probe| format!("{:?}", probe)),
+                            .map(|probe| format!("{probe:?}")),
                     )
                 })
                 .map(|(container_name, liveness_probe, readiness_probe)| Output {
