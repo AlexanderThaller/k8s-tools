@@ -4,7 +4,7 @@ use commands::{
     readonly_root_filesystem::readonly_root_filesystem, resource_requests::resource_requests,
 };
 use eyre::Result;
-use log::{error, info, warn, LevelFilter};
+use log::LevelFilter;
 
 mod api;
 mod commands;
