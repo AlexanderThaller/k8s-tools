@@ -51,6 +51,7 @@ struct TotalNamespace {
 struct TotalOwner {
     owner: Owner,
     resources: Resources,
+    count: u64,
 }
 
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
@@ -149,7 +150,7 @@ pub(crate) async fn resource_requests(
                 if let Some(threshold) = threshold {
                     if let Some(cpu_usage) = pod.resources.usage.cpu {
                         if let Some(requests_cpu) = pod.resources.requests.cpu {
-                            let diff = requests_cpu.saturating_sub(cpu_usage);
+                            let diff = requests_cpu - cpu_usage;
 
                             return diff > threshold.into();
                         }
@@ -214,7 +215,9 @@ impl std::ops::AddAssign<&PodOutput> for TotalNamespace {
 impl std::ops::AddAssign<&PodOutput> for TotalOwner {
     fn add_assign(&mut self, rhs: &PodOutput) {
         let new = &self.resources + &rhs.resources;
+
         self.resources = new;
+        self.count += 1;
     }
 }
 
@@ -380,22 +383,10 @@ impl std::ops::Add<&ResourcePair> for &ResourcePair {
 
     fn add(self, rhs: &ResourcePair) -> Self::Output {
         ResourcePair {
-            cpu: self.cpu.zip(rhs.cpu).map(|(left, right)| left + right),
-
-            cpu_milliseconds: self
-                .cpu_milliseconds
-                .zip(rhs.cpu_milliseconds)
-                .map(|(left, right)| left + right),
-
-            memory: self
-                .memory
-                .zip(rhs.memory)
-                .map(|(left, right)| left + right),
-
-            memory_bytes: self
-                .memory_bytes
-                .zip(rhs.memory_bytes)
-                .map(|(left, right)| left + right),
+            cpu: add_option(self.cpu, rhs.cpu),
+            cpu_milliseconds: add_option(self.cpu_milliseconds, rhs.cpu_milliseconds),
+            memory: add_option(self.memory, rhs.memory),
+            memory_bytes: add_option(self.memory_bytes, rhs.memory_bytes),
         }
     }
 }
@@ -405,25 +396,10 @@ impl std::ops::Sub<&ResourcePair> for &ResourcePair {
 
     fn sub(self, rhs: &ResourcePair) -> Self::Output {
         ResourcePair {
-            cpu: self
-                .cpu
-                .zip(rhs.cpu)
-                .map(|(left, right)| left.saturating_sub(right)),
-
-            cpu_milliseconds: self
-                .cpu_milliseconds
-                .zip(rhs.cpu_milliseconds)
-                .map(|(left, right)| left.saturating_sub(right)),
-
-            memory: self
-                .memory
-                .zip(rhs.memory)
-                .map(|(left, right)| left.saturating_sub(right)),
-
-            memory_bytes: self
-                .memory_bytes
-                .zip(rhs.memory_bytes)
-                .map(|(left, right)| left.saturating_sub(right)),
+            cpu: sub_option(self.cpu, rhs.cpu),
+            cpu_milliseconds: sub_option(self.cpu_milliseconds, rhs.cpu_milliseconds),
+            memory: sub_option(self.memory, rhs.memory),
+            memory_bytes: sub_option(self.memory_bytes, rhs.memory_bytes),
         }
     }
 }
@@ -436,5 +412,26 @@ impl std::ops::Add<&UsageDifference> for &UsageDifference {
             requests: &self.requests + &rhs.requests,
             limits: &self.limits + &rhs.limits,
         }
+    }
+}
+
+fn sub_option<T: num::traits::SaturatingSub<Output = T>>(
+    lhs: Option<T>,
+    rhs: Option<T>,
+) -> Option<T> {
+    match (lhs, rhs) {
+        (None, None) => None,
+        (Some(l), None) => Some(l),
+        (None, Some(r)) => Some(r),
+        (Some(r), Some(l)) => Some(l.saturating_sub(&r)),
+    }
+}
+
+fn add_option<T: std::ops::Add<Output = T>>(lhs: Option<T>, rhs: Option<T>) -> Option<T> {
+    match (lhs, rhs) {
+        (None, None) => None,
+        (Some(l), None) => Some(l),
+        (None, Some(r)) => Some(r),
+        (Some(r), Some(l)) => Some(l + r),
     }
 }

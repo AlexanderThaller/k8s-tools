@@ -309,18 +309,6 @@ fn quantity_to_number(input: &Quantity) -> Result<u64> {
     Ok(number)
 }
 
-impl Memory {
-    pub(crate) fn saturating_sub(self, rhs: Self) -> Self {
-        Self(self.0.saturating_sub(rhs.0))
-    }
-}
-
-impl Cpu {
-    pub(crate) fn saturating_sub(self, rhs: Self) -> Self {
-        Self(self.0.saturating_sub(rhs.0))
-    }
-}
-
 impl From<u64> for Cpu {
     fn from(value: u64) -> Self {
         Self(value)
@@ -363,6 +351,34 @@ impl std::ops::Add<Memory> for Memory {
 
     fn add(self, rhs: Memory) -> Self::Output {
         Self(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::Sub<Cpu> for Cpu {
+    type Output = Cpu;
+
+    fn sub(self, rhs: Cpu) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl std::ops::Sub<Memory> for Memory {
+    type Output = Memory;
+
+    fn sub(self, rhs: Memory) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl num::traits::SaturatingSub for Cpu {
+    fn saturating_sub(&self, v: &Self) -> Self {
+        Self(self.0.saturating_sub(v.0))
+    }
+}
+
+impl num::traits::SaturatingSub for Memory {
+    fn saturating_sub(&self, v: &Self) -> Self {
+        Self(self.0.saturating_sub(v.0))
     }
 }
 
