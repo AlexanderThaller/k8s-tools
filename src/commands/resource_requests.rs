@@ -10,6 +10,7 @@ use crate::api::{self, get_pod_owner, get_pod_resource_usage, get_pods, Cpu, Mem
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default)]
 struct Total {
     namespaces: Vec<TotalNamespace>,
+    owners: Vec<TotalOwner>,
 }
 
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default)]
@@ -46,6 +47,12 @@ struct TotalNamespace {
     resources: Resources,
 }
 
+#[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
+struct TotalOwner {
+    owner: Owner,
+    resources: Resources,
+}
+
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq)]
 struct PodOutput {
     pod_name: String,
@@ -56,6 +63,7 @@ struct PodOutput {
     resources: Resources,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn resource_requests(
     namespaces: Vec<String>,
     all_namespaces: bool,
@@ -153,7 +161,7 @@ pub(crate) async fn resource_requests(
         })
         .collect::<BTreeSet<_>>();
 
-    let total: HashMap<&str, TotalNamespace> =
+    let total_namespaces: HashMap<&str, TotalNamespace> =
         pods.iter().fold(HashMap::default(), |mut total, pod| {
             let entry = total
                 .entry(&pod.namespace)
@@ -166,9 +174,24 @@ pub(crate) async fn resource_requests(
             total
         });
 
+    let total_owners: HashMap<&str, TotalOwner> =
+        pods.iter().fold(HashMap::default(), |mut total, pod| {
+            if let Some(owner) = &pod.owner {
+                let entry = total.entry(&pod.namespace).or_insert_with(|| TotalOwner {
+                    owner: owner.clone(),
+                    ..Default::default()
+                });
+
+                *entry += pod;
+            }
+
+            total
+        });
+
     let output = Output {
         total: Total {
-            namespaces: total.values().cloned().collect(),
+            namespaces: total_namespaces.values().cloned().collect(),
+            owners: total_owners.values().cloned().collect(),
         },
 
         pods,
@@ -182,6 +205,13 @@ pub(crate) async fn resource_requests(
 }
 
 impl std::ops::AddAssign<&PodOutput> for TotalNamespace {
+    fn add_assign(&mut self, rhs: &PodOutput) {
+        let new = &self.resources + &rhs.resources;
+        self.resources = new;
+    }
+}
+
+impl std::ops::AddAssign<&PodOutput> for TotalOwner {
     fn add_assign(&mut self, rhs: &PodOutput) {
         let new = &self.resources + &rhs.resources;
         self.resources = new;

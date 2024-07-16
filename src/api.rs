@@ -45,7 +45,7 @@ pub(crate) struct PodMetrics {
     pub(crate) containers: Vec<PodMetricsContainer>,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Clone)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Clone, Default)]
 pub(crate) struct Owner {
     pub(crate) name: String,
     pub(crate) kind: String,
