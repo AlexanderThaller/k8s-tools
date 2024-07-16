@@ -309,6 +309,12 @@ fn quantity_to_number(input: &Quantity) -> Result<u64> {
     Ok(number)
 }
 
+impl Memory {
+    pub(crate) fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+}
+
 impl Cpu {
     pub(crate) fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))

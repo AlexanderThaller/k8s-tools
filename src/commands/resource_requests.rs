@@ -20,26 +20,24 @@ struct Output {
 
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
 struct Resources {
-    cpu_usage: Option<Cpu>,
-    cpu_usage_milliseconds: Option<u64>,
+    usage: ResourcePair,
+    requests: ResourcePair,
+    limits: ResourcePair,
+    difference: UsageDifference,
+}
 
-    memory_usage: Option<Memory>,
-    memory_usage_bytes: Option<u64>,
+#[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
+struct UsageDifference {
+    requests: ResourcePair,
+    limits: ResourcePair,
+}
 
-    requests_cpu: Option<Cpu>,
-    requests_cpu_milliseconds: Option<u64>,
-    requests_memory: Option<Memory>,
-    requests_memory_bytes: Option<u64>,
-
-    limits_cpu: Option<Cpu>,
-    limits_cpu_milliseconds: Option<u64>,
-    limits_memory: Option<Memory>,
-    limits_memory_bytes: Option<u64>,
-
-    difference_limits_cpu_milliseconds: Option<u64>,
-    difference_limits_memory_bytes: Option<u64>,
-    difference_requests_cpu_milliseconds: Option<u64>,
-    difference_requests_memory_bytes: Option<u64>,
+#[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
+struct ResourcePair {
+    cpu: Option<Cpu>,
+    cpu_milliseconds: Option<u64>,
+    memory: Option<Memory>,
+    memory_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
@@ -130,8 +128,8 @@ pub(crate) async fn resource_requests(
         })
         .filter(|pod| {
             // Check if cpu_usage is higher than requests_cpu
-            if let Some(cpu_usage) = pod.resources.cpu_usage {
-                if let Some(requests_cpu) = pod.resources.requests_cpu {
+            if let Some(cpu_usage) = pod.resources.usage.cpu {
+                if let Some(requests_cpu) = pod.resources.requests.cpu {
                     if cpu_usage > requests_cpu {
                         return true;
                     }
@@ -141,8 +139,8 @@ pub(crate) async fn resource_requests(
             // Check if cpu_usage is below the requests_cpu threshold
             if !no_check_higher {
                 if let Some(threshold) = threshold {
-                    if let Some(cpu_usage) = pod.resources.cpu_usage {
-                        if let Some(requests_cpu) = pod.resources.requests_cpu {
+                    if let Some(cpu_usage) = pod.resources.usage.cpu {
+                        if let Some(requests_cpu) = pod.resources.requests.cpu {
                             let diff = requests_cpu.saturating_sub(cpu_usage);
 
                             return diff > threshold.into();
@@ -272,23 +270,42 @@ fn generate_pod_output(
         owner,
 
         resources: Resources {
-            limits_cpu,
-            limits_cpu_milliseconds,
-            limits_memory,
-            limits_memory_bytes,
-            requests_cpu,
-            requests_cpu_milliseconds,
-            requests_memory,
-            requests_memory_bytes,
+            limits: ResourcePair {
+                cpu: limits_cpu,
+                cpu_milliseconds: limits_cpu_milliseconds,
+                memory: limits_memory,
+                memory_bytes: limits_memory_bytes,
+            },
 
-            cpu_usage: None,
-            cpu_usage_milliseconds: None,
-            memory_usage: None,
-            memory_usage_bytes: None,
-            difference_limits_cpu_milliseconds: None,
-            difference_limits_memory_bytes: None,
-            difference_requests_cpu_milliseconds: None,
-            difference_requests_memory_bytes: None,
+            requests: ResourcePair {
+                cpu: requests_cpu,
+                cpu_milliseconds: requests_cpu_milliseconds,
+                memory: requests_memory,
+                memory_bytes: requests_memory_bytes,
+            },
+
+            usage: ResourcePair {
+                cpu: None,
+                cpu_milliseconds: None,
+                memory: None,
+                memory_bytes: None,
+            },
+
+            difference: UsageDifference {
+                requests: ResourcePair {
+                    cpu: None,
+                    cpu_milliseconds: None,
+                    memory: None,
+                    memory_bytes: None,
+                },
+
+                limits: ResourcePair {
+                    cpu: None,
+                    cpu_milliseconds: None,
+                    memory: None,
+                    memory_bytes: None,
+                },
+            },
         },
     })
 }
@@ -297,96 +314,97 @@ impl std::ops::Add<&Resources> for &Resources {
     type Output = Resources;
 
     fn add(self, rhs: &Resources) -> Self::Output {
-        fn add_option<T>(a: Option<T>, b: Option<T>) -> Option<T>
-        where
-            T: std::ops::Add<Output = T>,
-        {
-            match (a, b) {
-                (Some(a), Some(b)) => Some(a + b),
-                (Some(a), None) => Some(a),
-                (None, Some(b)) => Some(b),
-                (None, None) => None,
-            }
-        }
-
         Resources {
-            cpu_usage: add_option(self.cpu_usage, rhs.cpu_usage),
-            cpu_usage_milliseconds: add_option(
-                self.cpu_usage_milliseconds,
-                rhs.cpu_usage_milliseconds,
-            ),
-            memory_usage: add_option(self.memory_usage, rhs.memory_usage),
-            memory_usage_bytes: add_option(self.memory_usage_bytes, rhs.memory_usage_bytes),
-            requests_cpu: add_option(self.requests_cpu, rhs.requests_cpu),
-            requests_cpu_milliseconds: add_option(
-                self.requests_cpu_milliseconds,
-                rhs.requests_cpu_milliseconds,
-            ),
-            requests_memory: add_option(self.requests_memory, rhs.requests_memory),
-            requests_memory_bytes: add_option(
-                self.requests_memory_bytes,
-                rhs.requests_memory_bytes,
-            ),
-            limits_cpu: add_option(self.limits_cpu, rhs.limits_cpu),
-            limits_cpu_milliseconds: add_option(
-                self.limits_cpu_milliseconds,
-                rhs.limits_cpu_milliseconds,
-            ),
-            limits_memory: add_option(self.limits_memory, rhs.limits_memory),
-            limits_memory_bytes: add_option(self.limits_memory_bytes, rhs.limits_memory_bytes),
-
-            difference_limits_cpu_milliseconds: add_option(
-                self.difference_limits_cpu_milliseconds,
-                rhs.difference_limits_cpu_milliseconds,
-            ),
-            difference_limits_memory_bytes: add_option(
-                self.difference_limits_memory_bytes,
-                rhs.difference_limits_memory_bytes,
-            ),
-            difference_requests_cpu_milliseconds: add_option(
-                self.difference_requests_cpu_milliseconds,
-                rhs.difference_requests_cpu_milliseconds,
-            ),
-            difference_requests_memory_bytes: add_option(
-                self.difference_requests_memory_bytes,
-                rhs.difference_requests_memory_bytes,
-            ),
+            usage: &self.usage + &rhs.usage,
+            requests: &self.requests + &rhs.requests,
+            limits: &self.limits + &rhs.limits,
+            difference: &self.difference + &rhs.difference,
         }
     }
 }
 
 impl Resources {
     fn set_cpu_usage(mut self, cpu_usage: Option<Cpu>) -> Self {
-        self.cpu_usage_milliseconds = cpu_usage.map(api::Cpu::to_milliseconds);
-        self.cpu_usage = cpu_usage;
+        self.usage.cpu_milliseconds = cpu_usage.map(api::Cpu::to_milliseconds);
+        self.usage.cpu = cpu_usage;
 
-        self.difference_limits_cpu_milliseconds = self
-            .cpu_usage_milliseconds
-            .zip(self.limits_cpu_milliseconds)
-            .map(|(usage, limit)| limit.saturating_sub(usage));
-
-        self.difference_requests_cpu_milliseconds = self
-            .cpu_usage_milliseconds
-            .zip(self.requests_cpu_milliseconds)
-            .map(|(usage, request)| request.saturating_sub(usage));
+        self.difference.requests = &self.requests - &self.usage;
+        self.difference.limits = &self.limits - &self.usage;
 
         self
     }
 
     fn set_memory_usage(mut self, memory_usage: Option<Memory>) -> Self {
-        self.memory_usage_bytes = memory_usage.map(api::Memory::to_bytes);
-        self.memory_usage = memory_usage;
+        self.usage.memory_bytes = memory_usage.map(api::Memory::to_bytes);
+        self.usage.memory = memory_usage;
 
-        self.difference_limits_memory_bytes = self
-            .memory_usage_bytes
-            .zip(self.limits_memory_bytes)
-            .map(|(usage, limit)| limit.saturating_sub(usage));
-
-        self.difference_requests_memory_bytes = self
-            .memory_usage_bytes
-            .zip(self.requests_memory_bytes)
-            .map(|(usage, request)| request.saturating_sub(usage));
+        self.difference.requests = &self.requests - &self.usage;
+        self.difference.limits = &self.limits - &self.usage;
 
         self
+    }
+}
+
+impl std::ops::Add<&ResourcePair> for &ResourcePair {
+    type Output = ResourcePair;
+
+    fn add(self, rhs: &ResourcePair) -> Self::Output {
+        ResourcePair {
+            cpu: self.cpu.zip(rhs.cpu).map(|(left, right)| left + right),
+
+            cpu_milliseconds: self
+                .cpu_milliseconds
+                .zip(rhs.cpu_milliseconds)
+                .map(|(left, right)| left + right),
+
+            memory: self
+                .memory
+                .zip(rhs.memory)
+                .map(|(left, right)| left + right),
+
+            memory_bytes: self
+                .memory_bytes
+                .zip(rhs.memory_bytes)
+                .map(|(left, right)| left + right),
+        }
+    }
+}
+
+impl std::ops::Sub<&ResourcePair> for &ResourcePair {
+    type Output = ResourcePair;
+
+    fn sub(self, rhs: &ResourcePair) -> Self::Output {
+        ResourcePair {
+            cpu: self
+                .cpu
+                .zip(rhs.cpu)
+                .map(|(left, right)| left.saturating_sub(right)),
+
+            cpu_milliseconds: self
+                .cpu_milliseconds
+                .zip(rhs.cpu_milliseconds)
+                .map(|(left, right)| left.saturating_sub(right)),
+
+            memory: self
+                .memory
+                .zip(rhs.memory)
+                .map(|(left, right)| left.saturating_sub(right)),
+
+            memory_bytes: self
+                .memory_bytes
+                .zip(rhs.memory_bytes)
+                .map(|(left, right)| left.saturating_sub(right)),
+        }
+    }
+}
+
+impl std::ops::Add<&UsageDifference> for &UsageDifference {
+    type Output = UsageDifference;
+
+    fn add(self, rhs: &UsageDifference) -> Self::Output {
+        UsageDifference {
+            requests: &self.requests + &rhs.requests,
+            limits: &self.limits + &rhs.limits,
+        }
     }
 }
