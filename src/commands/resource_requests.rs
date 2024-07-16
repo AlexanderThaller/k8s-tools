@@ -70,10 +70,16 @@ pub(crate) async fn resource_requests(
         .into_iter()
         .filter(|pod| pod.status.is_some())
         .filter(|pod| {
-            if let Some(name) = &pod.metadata.name {
-                info!("Ignoring not running pod: {name}");
+            let is_running =
+                pod.status.as_ref().map(|status| status.phase.as_deref()) == Some(Some("Running"));
+
+            if !is_running {
+                if let Some(name) = &pod.metadata.name {
+                    info!("Ignoring not running pod: {name}");
+                }
             }
-            pod.status.as_ref().map(|status| status.phase.as_deref()) == Some(Some("Running"))
+
+            is_running
         })
         .flat_map(pod_to_output)
         .flatten()
