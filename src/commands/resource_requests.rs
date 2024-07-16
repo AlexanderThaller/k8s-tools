@@ -35,6 +35,11 @@ struct Resources {
     limits_cpu_milliseconds: Option<u64>,
     limits_memory: Option<Memory>,
     limits_memory_bytes: Option<u64>,
+
+    difference_limits_cpu_milliseconds: Option<u64>,
+    difference_limits_memory_bytes: Option<u64>,
+    difference_requests_cpu_milliseconds: Option<u64>,
+    difference_requests_memory_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Ord, PartialOrd, Eq, PartialEq, Default, Clone)]
@@ -274,6 +279,10 @@ fn generate_pod_output(
             cpu_usage_milliseconds: None,
             memory_usage: None,
             memory_usage_bytes: None,
+            difference_limits_cpu_milliseconds: None,
+            difference_limits_memory_bytes: None,
+            difference_requests_cpu_milliseconds: None,
+            difference_requests_memory_bytes: None,
         },
     })
 }
@@ -319,6 +328,23 @@ impl std::ops::Add<&Resources> for &Resources {
             ),
             limits_memory: add_option(self.limits_memory, rhs.limits_memory),
             limits_memory_bytes: add_option(self.limits_memory_bytes, rhs.limits_memory_bytes),
+
+            difference_limits_cpu_milliseconds: add_option(
+                self.difference_limits_cpu_milliseconds,
+                rhs.difference_limits_cpu_milliseconds,
+            ),
+            difference_limits_memory_bytes: add_option(
+                self.difference_limits_memory_bytes,
+                rhs.difference_limits_memory_bytes,
+            ),
+            difference_requests_cpu_milliseconds: add_option(
+                self.difference_requests_cpu_milliseconds,
+                rhs.difference_requests_cpu_milliseconds,
+            ),
+            difference_requests_memory_bytes: add_option(
+                self.difference_requests_memory_bytes,
+                rhs.difference_requests_memory_bytes,
+            ),
         }
     }
 }
@@ -328,12 +354,32 @@ impl Resources {
         self.cpu_usage_milliseconds = cpu_usage.map(api::Cpu::to_milliseconds);
         self.cpu_usage = cpu_usage;
 
+        self.difference_limits_cpu_milliseconds = self
+            .cpu_usage_milliseconds
+            .zip(self.limits_cpu_milliseconds)
+            .map(|(usage, limit)| limit.saturating_sub(usage));
+
+        self.difference_requests_cpu_milliseconds = self
+            .cpu_usage_milliseconds
+            .zip(self.requests_cpu_milliseconds)
+            .map(|(usage, request)| request.saturating_sub(usage));
+
         self
     }
 
     fn set_memory_usage(mut self, memory_usage: Option<Memory>) -> Self {
         self.memory_usage_bytes = memory_usage.map(api::Memory::to_bytes);
         self.memory_usage = memory_usage;
+
+        self.difference_limits_memory_bytes = self
+            .memory_usage_bytes
+            .zip(self.limits_memory_bytes)
+            .map(|(usage, limit)| limit.saturating_sub(usage));
+
+        self.difference_requests_memory_bytes = self
+            .memory_usage_bytes
+            .zip(self.requests_memory_bytes)
+            .map(|(usage, request)| request.saturating_sub(usage));
 
         self
     }
